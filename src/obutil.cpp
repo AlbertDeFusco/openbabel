@@ -476,7 +476,8 @@ namespace OpenBabel
         else
           {
             // atom 2
-            atom->SetVector(dst, 0.0, 0.0);
+            //atom->SetVector(dst, 0.0, 0.0);
+            atom->SetVector(0.0, 0.0, dst);
             continue;
           }
 
