@@ -126,6 +126,43 @@ namespace OpenBabel
   //Make an instance of the format class
   GAMESSInputFormat theGAMESSInputFormat;
 
+  class GAMESSTrajFormat : public OBMoleculeFormat
+	{
+		public:
+			GAMESSTrajFormat()
+			{
+      				OBConversion::RegisterFormat("trj",this);
+			}
+
+			virtual const char* Description()
+			{
+				return
+					"GAMESS Molecular Dynamics Trajectory\n"
+					"Read Options e.g. -as\n"
+					"  s  Output single bonds only\n"
+					"  b  Disable bonding entirely\n"
+					"  l  Read only the last conformer\n";
+				//Read options would go here
+			}
+
+			virtual const char* SpecificationURL()
+			{return "http://www.msg.ameslab.gov/GAMESS/doc.menu.html";}; //optional
+
+			//Flags() can return be any the following combined by | or be omitted if none apply
+			// NOTREADABLE  READONEONLY  NOTWRITABLE  WRITEONEONLY
+			virtual unsigned int Flags()
+			{
+				return NOTWRITABLE;
+			};
+
+			////////////////////////////////////////////////////
+			/// The "API" interface functions
+			virtual bool ReadMolecule(OBBase* pOb, OBConversion* pConv);
+	};
+
+  //Make an instance of the format class
+  GAMESSTrajFormat theGAMESSTrajFormat;
+
   /////////////////////////////////////////////////////////////////
   /* this function is for parsing default options too.  it is decided that
    * we should only parse parameters that the user specified in the input
@@ -887,7 +924,7 @@ namespace OpenBabel
     const char *keywordsEnable = pConv->IsOption("k",OBConversion::GENOPTIONS);
     const char *keywordFile = pConv->IsOption("f",OBConversion::OUTOPTIONS);
 
-    string defaultKeywords = " $CONTRL COORD=CART UNITS=ANGS $END";
+    string defaultKeywords = " $CONTRL COORD=UNIQUE UNITS=ANGS $END";
 
     if(keywords)
       {
@@ -970,6 +1007,120 @@ namespace OpenBabel
 
     ofs << " $END" << endl << endl << endl;
     return(true);
+  }
+
+  ////////////////////////////////////////////////////////////////
+  bool GAMESSTrajFormat::ReadMolecule(OBBase* pOb, OBConversion* pConv)
+  {
+
+    OBMol* pmol = pOb->CastAndClear<OBMol>();
+    if(pmol==NULL)
+      return false;
+
+    //Define some references so we can use the old parameter names
+    istream &ifs = *pConv->GetInStream();
+    OBMol &mol = *pmol;
+    OBAtom *atom;
+    const char* title = pConv->GetTitle();
+
+    char buffer[BUFF_SIZE];
+    string str;
+    double x,y,z;
+    string timestep;
+    //until I learn to cat const char * this works
+    string titles(title);
+    vector<string> vs;
+    unsigned int natoms;
+    unsigned int nfrags;
+
+    if(!ifs) //there are no more lines
+	    return false;
+
+    if(!ifs.getline(buffer,BUFF_SIZE)) {
+	    cerr << "First line cannot be read." << endl;
+	    return(false);
+    }
+    
+
+    while(strstr(buffer,"===== MD DATA PACKET =====") == NULL)
+    {
+	    if(!ifs.getline(buffer,BUFF_SIZE))
+		    return(false);
+    }
+
+    if(!ifs.getline(buffer,BUFF_SIZE))
+	    return(false);//NAT=      12 NFRG=     110 NQMMM=       0
+    tokenize(vs,buffer);  
+    natoms=atoi((char*)vs[1].c_str());		
+    nfrags=atoi((char*)vs[3].c_str());		
+
+    if(!ifs.getline(buffer,BUFF_SIZE))
+	    return(false);//TTOTAL=        0.00 FS    TOT. E=      -260959.031186 KCAL/MOL
+    //grab the timestep and put it in the title
+    //How does one concatenate const char*?
+    tokenize(vs,buffer);
+    timestep=vs[1];
+    timestep=titles+" "+timestep+" fs";
+    title = timestep.c_str();
+
+    if(!ifs.getline(buffer,BUFF_SIZE))
+	    return(false);//POT. E=       -260959.031186 KCAL/MOL
+    if(!ifs.getline(buffer,BUFF_SIZE))
+	    return(false);//KIN. E=             0.000000  TRANS KE= 
+    if(!ifs.getline(buffer,BUFF_SIZE))
+	    return(false); //----- QM PARTICLE COORDINATES FOR $DATA GROUP -----
+    mol.SetTitle(title);
+    mol.BeginModify();
+    for(unsigned int i =1; i<=natoms; i++)
+    {
+	    if(!ifs.getline(buffer,BUFF_SIZE))
+		    return(false);
+	    tokenize(vs,buffer);
+	    atom = mol.NewAtom();
+	    atom->SetAtomicNum(atoi(vs[1].c_str())); // Parse the current one
+	    x = atof((char*)vs[2].c_str());
+	    y = atof((char*)vs[3].c_str());
+	    z = atof((char*)vs[4].c_str());
+	    atom->SetVector(x,y,z);
+	    vs[1].erase(vs[1].size() - 2, 2);
+    }
+    if(nfrags>0)
+    {
+	    ifs.getline(buffer,BUFF_SIZE);//----- EFP PARTICLE COORDINATES FOR $EFRAG GROUP -----
+		    ifs.getline(buffer,BUFF_SIZE);
+	    for (unsigned int i=1;i<=nfrags;i++) {
+		    //fragname will be obtained right here, not after the next line!
+		    if(!ifs.getline(buffer,BUFF_SIZE))
+			    return(false);
+		    tokenize(vs,buffer);
+		    while(vs.size() == 4)
+		    {
+			    atom = mol.NewAtom();
+			    int atomicNum;
+			    if( vs[0].substr(0,1) == "Z" || vs[0].substr(0,1) == "z" ) 
+				    atomicNum=etab.GetAtomicNum(vs[0].substr(1,1).c_str());
+			    else
+				    atomicNum=etab.GetAtomicNum(vs[0].substr(0,1).c_str());
+			    atom->SetAtomicNum(atomicNum);
+			    x = atof((char*)vs[1].c_str());
+			    y = atof((char*)vs[2].c_str());
+			    z = atof((char*)vs[3].c_str());
+			    atom->SetVector(x,y,z);
+			    if(!ifs.getline(buffer,BUFF_SIZE))
+				    break;
+			    tokenize(vs,buffer);
+		    }
+	    }
+    }
+	    
+    if (!pConv->IsOption("b",OBConversion::INOPTIONS))
+      mol.ConnectTheDots();
+    if (!pConv->IsOption("s",OBConversion::INOPTIONS) && !pConv->IsOption("b",OBConversion::INOPTIONS))
+      mol.PerceiveBondOrders();
+
+    mol.EndModify();
+    return(true);
+
   }
 
 } //namespace OpenBabel
