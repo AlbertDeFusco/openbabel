@@ -19,6 +19,9 @@
 
 #include <algorithm>
 
+#include <regex.h>
+int regex_match(const char *string, char *pattern);
+
 using namespace std;
 namespace Gamess
 {
@@ -47,7 +50,8 @@ namespace OpenBabel
         "Read Options e.g. -as\n"
         "  s  Output single bonds only\n"
         "  b  Disable bonding entirely\n\n"
-        "  c  Read multiple conformers\n\n";
+        "  c  Read multiple conformers\n\n"
+        "  u  Read symmetry unique atoms\n\n";
     };
 
     virtual const char* SpecificationURL()
@@ -272,9 +276,22 @@ namespace OpenBabel
     gmsset->SetAttribute("gamess");
     gmsset->SetOrigin(fileformatInput);
 
+    /*char* coordmatch;
+    bool unique;
+    coordmatch = "COORDINATES OF ALL ATOMS ARE (ANGS)";
+    if (pConv->IsOption("u",OBConversion::INOPTIONS)) {
+	    unique = true;
+	    coordmatch = "COORDINATES OF SYMMETRY UNIQUE ATOMS (ANGS)";
+    }*/
+    
+    bool fragonly=false;
     mol.BeginModify();
     while (ifs.getline(buffer,BUFF_SIZE))
       {
+	    if(strstr(buffer,"COORD =FRAGONLY")){
+		    fragonly=true;
+		    //break;
+	    }
         if(strstr(buffer,"ATOMIC                      COORDINATES (BOHR)") != NULL)
           {
             mol.Clear();
@@ -300,6 +317,10 @@ namespace OpenBabel
           }
         else if(strstr(buffer,"MULTIPOLE COORDINATES, ELECTRONIC AND NUCLEAR CHARGES") != NULL)
           {
+		  /*if(fragonly) {
+			  mol.Clear();
+			  mol.BeginModify();
+		  }*/
             /*This set of EFP coordinates belongs only to the
              * conformer directly above this (ATOMIC   COORDINATES (BOHR))
              */
@@ -316,13 +337,15 @@ namespace OpenBabel
                  */
                 if (atof((char*)vs[5].c_str()) > 0.0) {
                   atom = mol.NewAtom();
-                  atomicNum=etab.GetAtomicNum(vs[0].substr(0,1).c_str()); 
+		  if (regex_match(vs[0].c_str(),"A[0-9]{2}[A-Z]+"))
+			  atomicNum=etab.GetAtomicNum(vs[0].substr(3,3).c_str()); 
+		  else if(regex_match(vs[0].c_str(),"(O1|H2|H3)"))
+			  atomicNum=etab.GetAtomicNum(vs[0].substr(0,1).c_str()); 
                   atom->SetAtomicNum(atomicNum);
                   x = atof((char*)vs[1].c_str())* BOHR_TO_ANGSTROM;
                   y = atof((char*)vs[2].c_str())* BOHR_TO_ANGSTROM;
                   z = atof((char*)vs[3].c_str())* BOHR_TO_ANGSTROM;
                   atom->SetVector(x,y,z);
-
                 }
                 else if (vs[0].substr(0,1) == "Z") {
                   atom = mol.NewAtom();
@@ -332,7 +355,6 @@ namespace OpenBabel
                   y = atof((char*)vs[2].c_str())* BOHR_TO_ANGSTROM;
                   z = atof((char*)vs[3].c_str())* BOHR_TO_ANGSTROM;
                   atom->SetVector(x,y,z);
-
                 }
                 if (!ifs.getline(buffer,BUFF_SIZE))
                   break;
@@ -340,6 +362,7 @@ namespace OpenBabel
               }
           }
 
+        //else if(strstr(buffer,coordmatch) != NULL)
         else if(strstr(buffer,"COORDINATES OF ALL ATOMS ARE (ANGS)") != NULL)
           {
             mol.Clear();
@@ -363,36 +386,43 @@ namespace OpenBabel
                   break;
                 tokenize(vs,buffer);
               }
-            if(strstr(buffer,"COORDINATES OF FRAGMENT") != NULL)
+	  //}
+          if(strstr(buffer,"COORDINATES OF FRAGMENT") != NULL)
               {
+		  if(fragonly) {
+			  mol.Clear();
+			  mol.BeginModify();
+		  }
                 ifs.getline(buffer,BUFF_SIZE);      // column headings
                 ifs.getline(buffer,BUFF_SIZE);
+                ifs.getline(buffer,BUFF_SIZE);    //FRAGNAME
                 ifs.getline(buffer,BUFF_SIZE);
-                //ifs.getline(buffer,BUFF_SIZE);    //FRAGNAME
-                tokenize(vs,buffer);
+		tokenize(vs,buffer);
                 //while(vs.size() == 4)
-                while(vs.size() > 0) {
-                  if (vs.size() == 1) {
+                while(vs.size() == 4) {
+                  /*if (vs.size() == 1) {
                     vector<string> vs2;
                     char delim[] = "=";
                     tokenize(vs2,buffer,delim);
                   }
-                  else {
+                  else {*/
                     atom = mol.NewAtom();
                     /* For the included EFP1 potentials,
                      * the atom name may start with "Z"
                      */
                     int atomicNum;
-                    if ( vs[0].substr(0,1) == "Z" ) 
-                      atomicNum=etab.GetAtomicNum(vs[0].substr(1,1).c_str()); 
-                    else 
-                      atomicNum=etab.GetAtomicNum(vs[0].substr(0,1).c_str()); 
+		    if ( vs[0].substr(0,1) == "Z" ) 
+			    atomicNum=etab.GetAtomicNum(vs[0].substr(1,1).c_str()); 
+		    else if (regex_match(vs[0].c_str(),"A[0-9]{2}[A-Z]+"))
+			    atomicNum=etab.GetAtomicNum(vs[0].substr(3,3).c_str()); 
+		    else if(regex_match(vs[0].c_str(),"(O1|H2|H3)"))
+			    atomicNum=etab.GetAtomicNum(vs[0].substr(0,1).c_str()); 
                     atom->SetAtomicNum(atomicNum);
                     x = atof((char*)vs[1].c_str());
                     y = atof((char*)vs[2].c_str());
                     z = atof((char*)vs[3].c_str());
                     atom->SetVector(x,y,z);
-                  }
+                  //}
 			    
 
                   if (!ifs.getline(buffer,BUFF_SIZE))
@@ -400,7 +430,7 @@ namespace OpenBabel
                   tokenize(vs,buffer);
                 }
               }
-          }
+      }
         else if(strstr(buffer,"ELECTROSTATIC MOMENTS") != NULL)
           {
             ifs.getline(buffer,BUFF_SIZE); //-----
@@ -1067,27 +1097,29 @@ namespace OpenBabel
 	    return(false);//POT. E=       -260959.031186 KCAL/MOL
     if(!ifs.getline(buffer,BUFF_SIZE))
 	    return(false);//KIN. E=             0.000000  TRANS KE= 
-    if(!ifs.getline(buffer,BUFF_SIZE))
-	    return(false); //----- QM PARTICLE COORDINATES FOR $DATA GROUP -----
     mol.SetTitle(title);
     mol.BeginModify();
-    for(unsigned int i =1; i<=natoms; i++)
-    {
+    if(natoms>0) {
 	    if(!ifs.getline(buffer,BUFF_SIZE))
-		    return(false);
-	    tokenize(vs,buffer);
-	    atom = mol.NewAtom();
-	    atom->SetAtomicNum(atoi(vs[1].c_str())); // Parse the current one
-	    x = atof((char*)vs[2].c_str());
-	    y = atof((char*)vs[3].c_str());
-	    z = atof((char*)vs[4].c_str());
-	    atom->SetVector(x,y,z);
-	    vs[1].erase(vs[1].size() - 2, 2);
+		    return(false); //----- QM PARTICLE COORDINATES FOR $DATA GROUP -----
+	    for(unsigned int i =1; i<=natoms; i++)
+	    {
+		    if(!ifs.getline(buffer,BUFF_SIZE))
+			    return(false);
+		    tokenize(vs,buffer);
+		    atom = mol.NewAtom();
+		    atom->SetAtomicNum(atoi(vs[1].c_str())); // Parse the current one
+		    x = atof((char*)vs[2].c_str());
+		    y = atof((char*)vs[3].c_str());
+		    z = atof((char*)vs[4].c_str());
+		    atom->SetVector(x,y,z);
+		    vs[1].erase(vs[1].size() - 2, 2);
+	    }
     }
     if(nfrags>0)
     {
 	    ifs.getline(buffer,BUFF_SIZE);//----- EFP PARTICLE COORDINATES FOR $EFRAG GROUP -----
-		    ifs.getline(buffer,BUFF_SIZE);
+	    ifs.getline(buffer,BUFF_SIZE);
 	    for (unsigned int i=1;i<=nfrags;i++) {
 		    //fragname will be obtained right here, not after the next line!
 		    if(!ifs.getline(buffer,BUFF_SIZE))
@@ -1097,10 +1129,10 @@ namespace OpenBabel
 		    {
 			    atom = mol.NewAtom();
 			    int atomicNum;
-			    if( vs[0].substr(0,1) == "Z" || vs[0].substr(0,1) == "z" ) 
-				    atomicNum=etab.GetAtomicNum(vs[0].substr(1,1).c_str());
-			    else
-				    atomicNum=etab.GetAtomicNum(vs[0].substr(0,1).c_str());
+			    if (regex_match(vs[0].c_str(),"A[0-9]{2}[A-Z]+"))
+				    atomicNum=etab.GetAtomicNum(vs[0].substr(3,3).c_str()); 
+			    else if(regex_match(vs[0].c_str(),"(O1|H2|H3)"))
+				    atomicNum=etab.GetAtomicNum(vs[0].substr(0,1).c_str()); 
 			    atom->SetAtomicNum(atomicNum);
 			    x = atof((char*)vs[1].c_str());
 			    y = atof((char*)vs[2].c_str());
@@ -1124,3 +1156,17 @@ namespace OpenBabel
   }
 
 } //namespace OpenBabel
+//I found this function on the web searching for regex in C
+// http://www.osix.net/modules/article/?id=349
+int regex_match(const char *string, char *pattern) { 
+	int status; 
+	regex_t re; 
+	if(regcomp(&re, pattern, REG_EXTENDED|REG_NOSUB) != 0)  
+		return 0; 
+	status = regexec(&re, string, (size_t)0, NULL, 0); 
+	regfree(&re); 
+	if(status != 0)  
+		return 0; 
+	return 1; 
+} 
+
