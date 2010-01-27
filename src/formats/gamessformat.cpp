@@ -288,33 +288,33 @@ namespace OpenBabel
     mol.BeginModify();
     while (ifs.getline(buffer,BUFF_SIZE))
       {
-	    if(strstr(buffer,"COORD =FRAGONLY")){
-		    fragonly=true;
-		    //break;
-	    }
-        if(strstr(buffer,"ATOMIC                      COORDINATES (BOHR)") != NULL)
-          {
-            mol.Clear();
-            mol.BeginModify();
+	      if(strstr(buffer,"COORD =FRAGONLY")){
+		      fragonly=true;
+		      //break;
+	      }
+	      if(strstr(buffer,"ATOMIC                      COORDINATES (BOHR)") != NULL)
+	      {
+		      mol.Clear();
+		      mol.BeginModify();
 
-            ifs.getline(buffer,BUFF_SIZE);	// column headings
-            ifs.getline(buffer,BUFF_SIZE);
-            tokenize(vs,buffer);
-            while (vs.size() == 5)
-              {
-                atom = mol.NewAtom();
-                atom->SetAtomicNum(atoi(vs[1].c_str())); // Parse the current one
-                x = atof((char*)vs[2].c_str()) * BOHR_TO_ANGSTROM;
-                y = atof((char*)vs[3].c_str()) * BOHR_TO_ANGSTROM;
-                z = atof((char*)vs[4].c_str()) * BOHR_TO_ANGSTROM;
-                atom->SetVector(x,y,z);
-                vs[1].erase(vs[1].size() - 2, 2);
+		      ifs.getline(buffer,BUFF_SIZE);	// column headings
+		      ifs.getline(buffer,BUFF_SIZE);
+		      tokenize(vs,buffer);
+		      while (vs.size() == 5)
+		      {
+			      atom = mol.NewAtom();
+			      atom->SetAtomicNum(atoi(vs[1].c_str())); // Parse the current one
+			      x = atof((char*)vs[2].c_str()) * BOHR_TO_ANGSTROM;
+			      y = atof((char*)vs[3].c_str()) * BOHR_TO_ANGSTROM;
+			      z = atof((char*)vs[4].c_str()) * BOHR_TO_ANGSTROM;
+			      atom->SetVector(x,y,z);
+			      vs[1].erase(vs[1].size() - 2, 2);
 
-                if (!ifs.getline(buffer,BUFF_SIZE))
-                  break;
-                tokenize(vs,buffer);
-              }
-          }
+			      if (!ifs.getline(buffer,BUFF_SIZE))
+				      break;
+			      tokenize(vs,buffer);
+		      }
+	      }
         else if(strstr(buffer,"MULTIPOLE COORDINATES, ELECTRONIC AND NUCLEAR CHARGES") != NULL)
           {
 		  /*if(fragonly) {
@@ -337,10 +337,11 @@ namespace OpenBabel
                  */
                 if (atof((char*)vs[5].c_str()) > 0.0) {
                   atom = mol.NewAtom();
-		  if (regex_match(vs[0].c_str(),"A[0-9]{2}[A-Z]+"))
+		  /*if (regex_match(vs[0].c_str(),"A[0-9]{2}[A-Z]+"))
 			  atomicNum=etab.GetAtomicNum(vs[0].substr(3,3).c_str()); 
 		  else if(regex_match(vs[0].c_str(),"(O1|H2|H3)"))
-			  atomicNum=etab.GetAtomicNum(vs[0].substr(0,1).c_str()); 
+			  atomicNum=etab.GetAtomicNum(vs[0].substr(0,1).c_str()); */
+		  atomicNum=atoi(vs[5].c_str());
                   atom->SetAtomicNum(atomicNum);
                   x = atof((char*)vs[1].c_str())* BOHR_TO_ANGSTROM;
                   y = atof((char*)vs[2].c_str())* BOHR_TO_ANGSTROM;
