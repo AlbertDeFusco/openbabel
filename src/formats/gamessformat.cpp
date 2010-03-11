@@ -95,6 +95,8 @@ namespace OpenBabel
       OBConversion::RegisterOptionParam("k", NULL, 1, OBConversion::OUTOPTIONS);
       // Command-line keyword file
       OBConversion::RegisterOptionParam("f", NULL, 1, OBConversion::OUTOPTIONS);
+      // Command-line fragname file
+      OBConversion::RegisterOptionParam("e", NULL, 1, OBConversion::OUTOPTIONS);
     }
 
 
@@ -104,7 +106,8 @@ namespace OpenBabel
         "GAMESS Input\n"
         "Write Options e.g. -xk\n"
         "  k  \"keywords\" Use the specified keywords for input\n"
-        "  f    <file>     Read the file specified for input keywords\n\n";
+        "  f    <file>     Read the file specified for input keywords\n"
+	"  e    <file>     Read the $FRAGNAME from the file specified\n\n";
     };
 
     virtual const char* SpecificationURL()
@@ -166,6 +169,43 @@ namespace OpenBabel
 
   //Make an instance of the format class
   GAMESSTrajFormat theGAMESSTrajFormat;
+
+  class GAMESSFragnameFormat : public OBMoleculeFormat
+	{
+		public:
+			GAMESSFragnameFormat()
+			{
+      				OBConversion::RegisterFormat("efp",this);
+			}
+
+			virtual const char* Description()
+			{
+				return
+					"GAMESS Effective Fragment Potential Description\n";
+					/*"Read Options e.g. -as\n"
+					"  s  Output single bonds only\n"
+					"  b  Disable bonding entirely\n"
+					"  l  Read only the last conformer\n";*/
+				//Read options would go here
+			}
+
+			virtual const char* SpecificationURL()
+			{return "http://www.msg.ameslab.gov/GAMESS/doc.menu.html";}; //optional
+
+			//Flags() can return be any the following combined by | or be omitted if none apply
+			// NOTREADABLE  READONEONLY  NOTWRITABLE  WRITEONEONLY
+			virtual unsigned int Flags()
+			{
+				return NOTWRITABLE;
+			};
+
+			////////////////////////////////////////////////////
+			/// The "API" interface functions
+			virtual bool ReadMolecule(OBBase* pOb, OBConversion* pConv);
+	};
+
+  //Make an instance of the format class
+  GAMESSFragnameFormat theGAMESSFragnameFormat;
 
   /////////////////////////////////////////////////////////////////
   /* this function is for parsing default options too.  it is decided that
@@ -954,6 +994,7 @@ namespace OpenBabel
     const char *keywords = pConv->IsOption("k",OBConversion::OUTOPTIONS);
     const char *keywordsEnable = pConv->IsOption("k",OBConversion::GENOPTIONS);
     const char *keywordFile = pConv->IsOption("f",OBConversion::OUTOPTIONS);
+    const char *fragnameFile = pConv->IsOption("e",OBConversion::OUTOPTIONS);
 
     string defaultKeywords = " $CONTRL COORD=UNIQUE UNITS=ANGS $END";
 
@@ -1012,6 +1053,14 @@ namespace OpenBabel
         ofs << defaultKeywords << endl;
       }
 
+    /*OBPairData *efName = (OBPairData *)pmol->GetData("EFRAG");
+    if(efName){
+	    string efragName = efName->GetValue();
+	    cout << efragName << endl;
+    }
+    else
+	    cout << "no frag" << endl;*/
+
     ofs << endl << " $DATA" << endl;
     ofs << mol.GetTitle() << endl;
     if (!mol.HasData(OBGenericDataType::SymmetryData))
@@ -1027,16 +1076,58 @@ namespace OpenBabel
     //  OBAtom *atom;
     FOR_ATOMS_OF_MOL(atom, mol)
       {
-        snprintf(buffer, BUFF_SIZE, "%-3s %4d.0    %14.10f  %14.10f  %14.10f ",
+	      //string label;
+	      OBPairData *efLabel = (OBPairData *) atom->GetData("EFRAG");
+	      if (!efLabel)
+	      {
+        snprintf(buffer, BUFF_SIZE, "%-8s%3d.0    %14.10f  %14.10f  %14.10f ",
                  etab.GetSymbol(atom->GetAtomicNum()),
                  atom->GetAtomicNum(),
                  atom->GetX(),
                  atom->GetY(),
                  atom->GetZ());
         ofs << buffer << endl;
+	      }
       }
 
-    ofs << " $END" << endl << endl << endl;
+    ofs << " $END" << endl;
+    ofs << " $EFRAG" << endl << endl;
+    //  OBAtom *atom;
+	      string efNameSave = "NULL";
+    FOR_ATOMS_OF_MOL(atom, mol)
+      {
+	      string label;
+	      string efName;
+	      OBPairData *efragName = (OBPairData *) atom->GetData("EFRAG");
+	      OBPairData *efLabel = (OBPairData *) atom->GetData("EFLABEL");
+	      if (efragName)
+	      {
+		      efName=efragName->GetValue();
+		      if(efName != efNameSave)
+			      cout << "FRAGNAME=" << efName << endl;
+		      label=efLabel->GetValue();
+        snprintf(buffer, BUFF_SIZE, "%-8s         %14.10f  %14.10f  %14.10f ",
+	         label.c_str(),
+                 atom->GetX(),
+                 atom->GetY(),
+                 atom->GetZ());
+        ofs << buffer << endl;
+			efNameSave=efName;
+	      }
+      }
+    ofs << " $END" << endl << endl;
+
+
+    if (fragnameFile)
+    {
+	    ifstream kfstream(fragnameFile);
+	    string keyBuffer;
+	    if (kfstream)
+	    {
+		    while (getline(kfstream, keyBuffer))
+			    ofs << keyBuffer << endl;
+	    }
+    }
     return(true);
   }
 
@@ -1154,6 +1245,151 @@ namespace OpenBabel
     mol.EndModify();
     return(true);
 
+  }
+
+  ////////////////////////////////////////////////////////////////
+  bool GAMESSFragnameFormat::ReadMolecule(OBBase* pOb, OBConversion* pConv)
+  {
+
+    OBMol* pmol = pOb->CastAndClear<OBMol>();
+    if(pmol==NULL)
+      return false;
+
+    //Define some references so we can use the old parameter names
+    istream &ifs = *pConv->GetInStream();
+    OBMol &mol = *pmol;
+    //const char* title = pConv->GetTitle();
+
+    char buffer[BUFF_SIZE];
+    string str,str1;
+    double x,y,z;
+    OBAtom *atom;
+    vector<string> vs;
+    bool hasPartialCharges = false;
+    string efragName; // used to save identifiers of EFRAG sections
+    string efragLabel; //atoms have unique labels
+
+    mol.BeginModify();
+    while	(ifs.getline(buffer,BUFF_SIZE))
+      {
+	      /*if(strstr(buffer," $") != NULL)
+	      {
+		      tokenize(vs,buffer,"$");
+		      efragName=vs[1];
+		      cout << efragName << endl;
+	      }*/
+	      // Tag these atoms as part of a specific EFP fragment
+	      if(strstr(buffer,"COORDINATES (BOHR)") !=NULL)
+	      {
+		      ifs.getline(buffer,BUFF_SIZE);
+		      while(strstr(buffer,"STOP") == NULL)
+		      {
+			      int atomicNum;
+			      tokenize(vs,buffer);
+			      if (atof((char*)vs[5].c_str()) > 0.0) 
+			      {
+				      atom = mol.NewAtom();
+				      atomicNum=atoi(vs[5].c_str());
+				      atom->SetAtomicNum(atomicNum);
+				      x = atof((char*)vs[1].c_str())* BOHR_TO_ANGSTROM;
+				      y = atof((char*)vs[2].c_str())* BOHR_TO_ANGSTROM;
+				      z = atof((char*)vs[3].c_str())* BOHR_TO_ANGSTROM;
+				      atom->SetVector(x,y,z);
+				      // Set atom labels
+				      efragLabel = vs[0];
+				      OBPairData *efLabel = new OBPairData;
+				      efLabel->SetAttribute("EFLABEL");
+				      efLabel->SetValue(efragLabel);
+				      efLabel->SetOrigin(fileformatInput);
+				      atom->SetData(efLabel);
+				      // Since molecules are not really separate, atoms will have FRAGNAME
+				      efragName="FRAGNAME";
+				      OBPairData *dp = new OBPairData;
+				      dp->SetAttribute("EFRAG");
+				      dp->SetValue(efragName);
+				      dp->SetOrigin(fileformatInput);
+				      atom->SetData(dp);
+			      }
+			      if (!ifs.getline(buffer,BUFF_SIZE))
+				      break;
+		      }
+	      }
+      }
+        /*if(strstr(buffer,"$DATA") != NULL)
+          {
+            ifs.getline(buffer,BUFF_SIZE);	// title
+            tokenize(vs,buffer);
+            mol.SetTitle(buffer);
+            ifs.getline(buffer,BUFF_SIZE);  // C1
+            ifs.getline(buffer,BUFF_SIZE);
+            while (strstr(buffer, "$END") == NULL)
+              {
+                tokenize(vs,buffer);
+                if(vs.size() == 5) 
+                  {
+                    atom = mol.NewAtom();
+                    atom->SetAtomicNum(atoi(vs[1].c_str())); // Parse the current one
+                    x = atof((char*)vs[2].c_str());
+                    y = atof((char*)vs[3].c_str());
+                    z = atof((char*)vs[4].c_str());
+                    atom->SetVector(x,y,z);
+                    vs[1].erase(vs[1].size() - 2, 2);
+                  }
+
+                if (!ifs.getline(buffer,BUFF_SIZE))
+                  break;
+              }
+          }
+        if(strstr(buffer,"$EFRAG") != NULL)
+          {
+            while (strstr(buffer,"FRAGNAME") == NULL)
+              {
+                //read $EFRAG parameters
+                tokenize(vs, buffer, "=");
+                if (vs.size() > 1)
+                  efragName = vs[1];
+                if(!ifs.getline(buffer,BUFF_SIZE))
+                  break;
+              }
+            while(strstr(buffer,"$END") == NULL)
+              {
+                tokenize(vs,buffer);
+                if(vs.size() == 4)
+                  {
+                    atom = mol.NewAtom();
+                    int atomicNum;
+                    if( vs[0].substr(0,1) == "Z" || vs[0].substr(0,1) == "z" ) 
+                      atomicNum=etab.GetAtomicNum(vs[0].substr(1,1).c_str());
+                    else
+                      atomicNum=etab.GetAtomicNum(vs[0].substr(0,1).c_str());
+                    atom->SetAtomicNum(atomicNum);
+                    x = atof((char*)vs[1].c_str());
+                    y = atof((char*)vs[2].c_str());
+                    z = atof((char*)vs[3].c_str());
+                    atom->SetVector(x,y,z);
+
+                    // Tag these atoms as part of a specific EFP fragment
+                    OBPairData *dp = new OBPairData;
+                    dp->SetAttribute("EFRAG");
+                    dp->SetValue(efragName);
+                    dp->SetOrigin(fileformatInput);
+                    atom->SetData(dp);
+                  }
+                if(!ifs.getline(buffer,BUFF_SIZE))
+                  break;
+              }
+          }*/
+
+    if (!pConv->IsOption("b",OBConversion::INOPTIONS))
+      mol.ConnectTheDots();
+    if (!pConv->IsOption("s",OBConversion::INOPTIONS) && !pConv->IsOption("b",OBConversion::INOPTIONS))
+      mol.PerceiveBondOrders();
+
+    mol.EndModify();
+    if (hasPartialCharges)
+      mol.SetPartialChargesPerceived();
+    //mol.SetTitle(title);
+    return(true);
   }
 
 } //namespace OpenBabel
