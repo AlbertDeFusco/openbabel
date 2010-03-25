@@ -983,7 +983,6 @@ namespace OpenBabel
   bool GAMESSInputFormat::WriteMolecule(OBBase* pOb, OBConversion* pConv)
   {
     OBMol* pmol = dynamic_cast<OBMol*>(pOb);
-    bool writeEfrag = false;
     if(pmol==NULL)
       return false;
 
@@ -1057,83 +1056,10 @@ namespace OpenBabel
         ofs << defaultKeywords << endl;
       }
 
-    /*if (waterEfrag) {
-	    OBSmartsPattern sp;
-	    sp.Init("[OH2]");
-	    sp.Match(mol);
-	    vector<vector<int> > maplist;
-	    maplist = sp.GetUMapList();
-	    if( maplist.size() != 0) {
-		    writeEfrag=true;
-		    vector<vector<int> >::iterator i;
-		    vector<int>::iterator j;
-		    OBAtom *a1,*a2,*a3;
-		    for (i = maplist.begin();i != maplist.end();++i)
-		    {
-			    //oxygen first
-			    a1 = mol.GetAtom((*i)[0]);
-			    OBPairData *efLabel = new OBPairData;
-			    efLabel->SetAttribute("EFLABEL");
-			    efLabel->SetValue("O1");
-			    efLabel->SetOrigin(fileformatInput);
-			    a1->SetData(efLabel);
-			    string efragName="FRAGNAME";
-			    OBPairData *dp = new OBPairData;
-			    dp->SetAttribute("EFRAG");
-			    dp->SetValue("H2ODFT");
-			    dp->SetOrigin(fileformatInput);
-			    a1->SetData(dp);
-			    OBPairData *fragsize = new OBPairData;
-			    fragsize->SetAttribute("FRAGSIZE");
-			    fragsize->SetValue("1");
-			    fragsize->SetOrigin(fileformatInput);
-			    a1->SetData(fragsize);
-			    //now, go find the hydrogens!!
-			    vector<OBBond*>::iterator k;
-			    a2=a1->BeginNbrAtom(k);
-
-			    a2=a1->NextNbrAtom(k);
-			    //OBPairData *efLabel = new OBPairData;
-			    efLabel->SetAttribute("EFLABEL");
-			    efLabel->SetValue("H2");
-			    efLabel->SetOrigin(fileformatInput);
-			    a2->SetData(efLabel);
-			    //string efragName="FRAGNAME";
-			    //OBPairData *dp = new OBPairData;
-			    dp->SetAttribute("EFRAG");
-			    dp->SetValue("H2ODFT");
-			    dp->SetOrigin(fileformatInput);
-			    a2->SetData(dp);
-			    //OBPairData *fragsize = new OBPairData;
-			    fragsize->SetAttribute("FRAGSIZE");
-			    fragsize->SetValue("2");
-			    fragsize->SetOrigin(fileformatInput);
-			    a2->SetData(fragsize);
-			    cout << etab.GetSymbol(a2->GetAtomicNum()) << " "
-				    << a2->GetX() << " "
-				    << a2->GetY() << " "
-				    << a2->GetZ() << " "
-				    << endl;
-				    
-			    
-
-
-
-		    }
-	    }
-	    else
-		    cerr << "I could not find any water molecules!" << endl;
-    }*/
-    /*OBPairData *efName = (OBPairData *)pmol->GetData("EFRAG");
-    if(efName){
-	    string efragName = efName->GetValue();
-	    cout << efragName << endl;
-    }
-    else
-	    cout << "no frag" << endl;*/
+    ifstream kfstream(waterEfrag);
     if(waterEfrag){
 
-	    string fragname="H2ODFT";
+	    //string fragname="H2ODFT";
 	    OBSmartsPattern sp;
 	    sp.Init("[OH2]");
 	    vector<vector<int> > maplist;
@@ -1181,7 +1107,7 @@ namespace OpenBabel
 		    fragcount++;
 		    maplist = sp.GetUMapList();
 		    i = maplist.begin();
-		    ofs << "FRAGNAME=" << fragname << "  !" << fragcount << endl;
+		    ofs << "FRAGNAME=" << waterEfrag << "  !" << fragcount << endl;
 		    molthis=*itr;
 		    vector<OBBond*>::iterator k;
 		    o1 = molthis.GetAtom((*i)[0]);
@@ -1201,103 +1127,43 @@ namespace OpenBabel
 				    hname="H3";
 			    else
 				    cerr << "More than two hydrogens?" << endl;
-
-		    //h2=o1->BeginNbrAtom(k);
-		    //h2=o1->NextNbrAtom(k);
-		    snprintf(buffer, BUFF_SIZE, "%-8s         %14.10f  %14.10f  %14.10f ",
-				    hname,
-				    h2->GetX(),
-				    h2->GetY(),
-				    h2->GetZ());
-		    ofs << buffer << endl;
-		    }
-		    /*h3=o1->NextNbrAtom(k);
-		    snprintf(buffer, BUFF_SIZE, "%-8s         %14.10f  %14.10f  %14.10f ",
-				    "H3",
-				    h3->GetX(),
-				    h3->GetX(),
-				    h3->GetZ());
-		    ofs << buffer << endl;*/
-		    /*FOR_ATOMS_OF_MOL(atom,*itr)
-		    {
-			    string symbol=etab.GetSymbol(atom->GetAtomicNum());
 			    snprintf(buffer, BUFF_SIZE, "%-8s         %14.10f  %14.10f  %14.10f ",
-					    symbol.c_str(),
-					    atom->GetX(),
-					    atom->GetY(),
-					    atom->GetZ());
+					    hname,
+					    h2->GetX(),
+					    h2->GetY(),
+					    h2->GetZ());
 			    ofs << buffer << endl;
-		    }*/
-
+		    }
 	    }
 	    ofs << " $END" << endl;
     }
-    else{
-
-    ofs << endl << " $DATA" << endl;
-    ofs << mol.GetTitle() << endl;
-    if (!mol.HasData(OBGenericDataType::SymmetryData))
-      ofs << "C1" << endl;
     else
-      {
-        // \todo needs to be updated for point group symmetry recognition
-        //   particularly for output of the symmetry elements
-        //   and any necessary rotation for frame of reference for GAMESS
-        ofs << "Put symmetry info here" << endl << endl;
-      }
+    { //This is the original $DATA writer
+	    ofs << endl << " $DATA" << endl;
+	    ofs << mol.GetTitle() << endl;
+	    if (!mol.HasData(OBGenericDataType::SymmetryData))
+		    ofs << "C1" << endl;
+	    else
+	    {
+		    // \todo needs to be updated for point group symmetry recognition
+		    //   particularly for output of the symmetry elements
+		    //   and any necessary rotation for frame of reference for GAMESS
+		    ofs << "Put symmetry info here" << endl << endl;
+	    }
 
-    //  OBAtom *atom;
-    FOR_ATOMS_OF_MOL(atom, mol)
-      {
-	      //string label;
-	      //OBPairData *efLabel = (OBPairData *) atom->GetData("EFRAG");
-	      //if (!efLabel)
-	      //{
-        snprintf(buffer, BUFF_SIZE, "%-8s%3d.0    %14.10f  %14.10f  %14.10f ",
-                 etab.GetSymbol(atom->GetAtomicNum()),
-                 atom->GetAtomicNum(),
-                 atom->GetX(),
-                 atom->GetY(),
-                 atom->GetZ());
-        ofs << buffer << endl;
-	      //}
-      }
-
-    ofs << " $END" << endl;
-    if(writeEfrag) {
-	    ofs << " $EFRAG" << endl << endl;
 	    //  OBAtom *atom;
-	    string efNameSave = "NULL";
-	    int size = 0;
 	    FOR_ATOMS_OF_MOL(atom, mol)
 	    {
-		    string label;
-		    string efName;
-		    OBPairData *efragName = (OBPairData *) atom->GetData("EFRAG");
-		    OBPairData *efLabel = (OBPairData *) atom->GetData("EFLABEL");
-		    OBPairData *fragsize = (OBPairData *) atom->GetData("FRAGSIZE");
-		    if (efragName)
-		    {
-			    size++;
-			    int thissize=atoi((char *)fragsize->GetValue().c_str());
-			    if ( (size > thissize))
-				    size=1;
-			    efName=efragName->GetValue();
-			    if(size == 1) {
-				    cout << "FRAGNAME=" << efName << endl;
-			    }
-			    label=efLabel->GetValue();
-			    snprintf(buffer, BUFF_SIZE, "%-8s         %14.10f  %14.10f  %14.10f ",
-					    label.c_str(),
-					    atom->GetX(),
-					    atom->GetY(),
-					    atom->GetZ());
-			    ofs << buffer << endl;
-			    efNameSave=efName;
-		    }
+		    snprintf(buffer, BUFF_SIZE, "%-8s%3d.0    %14.10f  %14.10f  %14.10f ",
+				    etab.GetSymbol(atom->GetAtomicNum()),
+				    atom->GetAtomicNum(),
+				    atom->GetX(),
+				    atom->GetY(),
+				    atom->GetZ());
+		    ofs << buffer << endl;
 	    }
-	    ofs << " $END" << endl << endl;
-    }
+
+	    ofs << " $END" << endl;
     }
 
 
