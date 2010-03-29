@@ -184,11 +184,8 @@ namespace OpenBabel
 			{
 				return
 					"GAMESS Effective Fragment Potential Description\n";
-					/*"Read Options e.g. -as\n"
-					"  s  Output single bonds only\n"
-					"  b  Disable bonding entirely\n"
-					"  l  Read only the last conformer\n";*/
-				//Read options would go here
+					//"Read Options e.g. -as\n"
+					//Read options would go here
 			}
 
 			virtual const char* SpecificationURL()
@@ -325,6 +322,7 @@ namespace OpenBabel
 	    unique = true;
 	    coordmatch = "COORDINATES OF SYMMETRY UNIQUE ATOMS (ANGS)";
     }*/
+
     
     bool fragonly=false;
     mol.BeginModify();
@@ -345,7 +343,14 @@ namespace OpenBabel
 		      while (vs.size() == 5)
 		      {
 			      atom = mol.NewAtom();
-			      atom->SetAtomicNum(atoi(vs[1].c_str())); // Parse the current one
+			      //some people like arbitrary labels
+			      OBPairData *dp = new OBPairData;
+			      dp->SetAttribute("GMSLABEL");
+			      dp->SetOrigin(fileformatInput);
+			      dp->SetValue(vs[0]);
+			      atom->SetData(dp);
+			      //now for the real atom identifier
+			      atom->SetAtomicNum(atoi(vs[1].c_str()));
 			      x = atof((char*)vs[2].c_str()) * BOHR_TO_ANGSTROM;
 			      y = atof((char*)vs[3].c_str()) * BOHR_TO_ANGSTROM;
 			      z = atof((char*)vs[4].c_str()) * BOHR_TO_ANGSTROM;
@@ -418,6 +423,12 @@ namespace OpenBabel
             while (vs.size() == 5)
               {
                 atom = mol.NewAtom();
+		//some people like arbitrary labels
+		OBPairData *dp = new OBPairData;
+		dp->SetAttribute("GMSLABEL");
+		dp->SetOrigin(fileformatInput);
+		dp->SetValue(vs[0]);
+		atom->SetData(dp);
                 atom->SetAtomicNum(atoi(vs[1].c_str())); // Parse the current one
                 x = atof((char*)vs[2].c_str());
                 y = atof((char*)vs[3].c_str());
@@ -889,6 +900,11 @@ namespace OpenBabel
     istream &ifs = *pConv->GetInStream();
     OBMol &mol = *pmol;
     //const char* title = pConv->GetTitle();
+    
+    // must build generic data while we parse then add at the end.
+    OBSetData *gmsset = new OBSetData();
+    gmsset->SetAttribute("gamess");
+    gmsset->SetOrigin(fileformatInput);
 
     char buffer[BUFF_SIZE];
     string str,str1;
@@ -914,6 +930,12 @@ namespace OpenBabel
                 if(vs.size() == 5) 
                   {
                     atom = mol.NewAtom();
+		    //some people like arbitrary labels
+		    OBPairData *dp = new OBPairData;
+		    dp->SetAttribute("GMSLABEL");
+		    dp->SetOrigin(fileformatInput);
+		    dp->SetValue(vs[0]);
+		    atom->SetData(dp);
                     atom->SetAtomicNum(atoi(vs[1].c_str())); // Parse the current one
                     x = atof((char*)vs[2].c_str());
                     y = atof((char*)vs[3].c_str());
@@ -926,7 +948,7 @@ namespace OpenBabel
                   break;
               }
           }
-        if(strstr(buffer,"$EFRAG") != NULL)
+	else if(strstr(buffer,"$EFRAG") != NULL)
           {
             while (strstr(buffer,"FRAGNAME") == NULL)
               {
@@ -965,6 +987,221 @@ namespace OpenBabel
                   break;
               }
           }
+	//I'll work on the VEC later
+	else if(strstr(buffer,"$VEC") != NULL) 
+		continue;
+
+	//read keywords for translation
+	else if(regex_match(buffer, "^ \\$[a-z0-9]+ "))
+	{
+	   
+		char buffer2[BUFF_SIZE];
+		if(!regex_match(buffer," \\$END")) {
+			//cout << buffer << endl;
+			//cout << "not complete" << endl;
+		   while(ifs.getline(buffer2,BUFF_SIZE))
+		   {
+			   if(!regex_match(buffer2," \\$END")) {
+				strcat(buffer,buffer2);
+				strcat(buffer,"\n");
+			   }
+			   if(regex_match(buffer2," \\$END"))
+			   {
+				strcat(buffer,buffer2);
+				//strcat(buffer,"\n");
+				break;
+			   }
+		   }
+		   //cout << buffer << endl;
+		}
+			//ifs.getline(buffer2,BUFF_SIZE);
+		/*while(!regex_match(buffer2,"\\s\\$END"))
+		{
+		//cout << buffer2 << endl;
+                if(!ifs.getline(buffer2,BUFF_SIZE))
+                  break;
+		}
+		}*/
+
+            string attr, value;
+            char *ptr;
+
+            for( ; ; )
+              {
+                //ptr = buffer + 2;;
+                tokenize(vs, ptr);
+
+                if(vs.size() > 2)
+                  {
+                    OBSetData *curset = (OBSetData *)gmsset->GetData(vs[0]);
+                    if(!curset)
+                      {
+                        curset = new OBSetData();
+                        curset->SetAttribute(vs[0]);
+                        curset->SetOrigin(fileformatInput);
+                        gmsset->AddData(curset);
+                      }
+		    OBPairData *data = new OBPairData();
+		    data = new OBPairData();
+		    data->SetAttribute(vs[0]);
+		    data->SetValue(buffer);
+		    data->SetOrigin(fileformatInput);
+		    curset->AddData(data);
+
+                    /*for(unsigned int i=1;i < vs.size() && vs[i].substr(0,4) != "$END"; i++) {
+                      string::size_type loc = vs[i].find("=",0);
+                      if(loc != string::npos)
+                        {
+                          // cout << vs[i].substr(0,loc) << " !!!!! " << vs[i].substr(loc+1) << endl;
+                          OBPairData *data = new OBPairData();
+                          data = new OBPairData();
+                          data->SetAttribute(vs[i].substr(0,loc));
+                          data->SetValue(vs[i].substr(loc+1));
+                          data->SetOrigin(fileformatInput);
+                          curset->AddData(data);
+                        }
+                    }*/
+                  }
+
+                break;
+
+              }
+          }
+
+      }
+    const char *keywordsEnable = pConv->IsOption("k",OBConversion::GENOPTIONS);
+
+    if(keywordsEnable)
+      {
+        // add our gamess set
+        pmol->SetData(gmsset);
+
+        // if we have basis set data we should set our global pair data
+        OBSetData *cset = (OBSetData *) gmsset->GetData("CONTRL");
+        OBSetData *bset = (OBSetData *) gmsset->GetData("BASIS");
+
+        string model = "b3lyp";
+        string basis;
+        string method;
+
+        if(cset)
+          {
+            OBPairData *pd = NULL;
+
+            pd = (OBPairData *) cset->GetData("SCFTYP");
+            if(pd)
+              {
+                if(pd->GetValue() == "RHF")
+                  {
+                    model = "rhf";
+                  }
+              }
+
+            pd = (OBPairData *) cset->GetData("DFTTYP");
+            if(pd)
+              {
+                if(pd->GetValue() == "BLYP")
+                  {
+                    model = "b3lyp";
+                  }
+              }
+
+            pd = (OBPairData *) cset->GetData("MPLEVL");
+            if(pd)
+              {
+                if(pd->GetValue() == "2")
+                  model = "mp2";
+              }
+
+            pd = (OBPairData *) cset->GetData("CCTYP");
+            if(pd)
+              {
+                if(pd->GetValue() == "CCSD(T)")
+                  model = "ccsd(t)";
+              }
+
+            pd = (OBPairData *) cset->GetData("RUNTYP");
+            if(pd)
+              {
+                string value = pd->GetValue();
+                if(value == "GRADIENT" || value == "HESSIAN" || value == "OPTIMIZE" || value == "SADPOINT")
+                  {
+                    method = pd->GetValue();
+                    transform(method.begin(), method.end(), method.begin(), ::tolower);
+                  }
+              }
+
+          }
+
+
+        if(bset)
+          {
+            OBPairData *gbasis = (OBPairData *) bset->GetData("GBASIS");
+            OBPairData *ngauss = (OBPairData *) bset->GetData("NGAUSS");
+
+            if(gbasis)
+              {
+                string value = gbasis->GetValue();
+
+                if( value == "am1" )
+                  {
+                    model = "am1";
+                  }
+                else if( value == "pm3" )
+                  {
+                    model = "pm3";
+                  }
+                else if(ngauss)
+                  {
+                    if(value == "STO")
+                      {
+                        basis.clear();
+                        basis += "sto-";
+                        basis += ngauss->GetValue();
+                        basis += "g";
+                      }
+                    else if(ngauss->GetValue() == "3" || ngauss->GetValue() == "6")
+                      {
+                        basis.clear();
+                        basis = ngauss->GetValue();
+                        basis += "-";
+                        basis += gbasis->GetValue().substr(1);
+                        basis += "G(d)";
+                      }
+                  }
+              }
+          }
+        OBPairData *nd = NULL;
+        if(model != "")
+          {
+            nd = new OBPairData();
+            nd->SetAttribute("model");
+            nd->SetValue(model);
+            nd->SetOrigin(fileformatInput);
+            pmol->SetData(nd);
+          }
+        if(basis != "")
+          {
+            nd = new OBPairData();
+            nd->SetAttribute("basis");
+            nd->SetValue(basis);
+            nd->SetOrigin(fileformatInput);
+            pmol->SetData(nd);
+          }
+        if(method != "")
+          {
+            nd = new OBPairData();
+            nd->SetAttribute("method");
+            nd->SetValue(method);
+            nd->SetOrigin(fileformatInput);
+            pmol->SetData(nd);
+          }
+
+        /*
+          cout << "model: " << model << endl;
+          cout << "basis: " << basis << endl;
+          cout << "method: " << method << endl;
+        */
       }
 
     if (!pConv->IsOption("b",OBConversion::INOPTIONS))
@@ -1019,16 +1256,24 @@ namespace OpenBabel
                 OBSetData *cset = (OBSetData *)(*i);
                 if(cset)
                   {
-                    ofs << " $" << cset->GetAttribute();
-                    for(j = cset->GetBegin(); j != cset->GetEnd(); j++)
+                    ofs << "!" << cset->GetAttribute() << endl;
+		    j=cset->GetBegin();
+		    OBPairData *pd = (OBPairData *) (*i);
+		    if(pd){
+			    pd->GetAttribute();
+			    ofs << pd->GetValue() << endl;
+		    }
+
+                    /*for(j = cset->GetBegin(); j != cset->GetEnd(); j++)
                       {
-                        OBPairData *pd = (OBPairData *) (*j);
+			OBPairData *pd = (OBPairData *) (*i);
                         if(pd)
                           {
                             ofs << " " << pd->GetAttribute() << "=" << pd->GetValue();
                           }
                       }
-                    ofs << " $END"<<endl;
+                    ofs << " $END"<<endl;*/
+			  //ofs << cset
                   }
               }
 
@@ -1084,8 +1329,18 @@ namespace OpenBabel
 
 		    FOR_ATOMS_OF_MOL(atom,*itr)
 		    {
+			    string label;
+			    if(atom->HasData("GMSLABEL"))
+			    {
+				    OBPairData *pd = (OBPairData *) atom->GetData("GMSLABEL");
+				    label=pd->GetValue();
+			    }
+			    else
+			    {
+				    label=etab.GetSymbol(atom->GetAtomicNum());
+			    }
 			    snprintf(buffer, BUFF_SIZE, "%-8s%3d.0    %14.10f  %14.10f  %14.10f ",
-					    etab.GetSymbol(atom->GetAtomicNum()),
+					    label.c_str(),
 					    atom->GetAtomicNum(),
 					    atom->GetX(),
 					    atom->GetY(),
@@ -1118,6 +1373,8 @@ namespace OpenBabel
 				    o1->GetZ());
 		    ofs << buffer << endl;
 		    int hcount=0;
+		    //for some reason repeating "o1->NextNbrAtom(k);" causes a
+		    //segmentation error.
 		    for (h2 = o1->BeginNbrAtom(k);h2;h2 = o1->NextNbrAtom(k)){
 			    hcount++;
 			    char* hname;
@@ -1154,8 +1411,21 @@ namespace OpenBabel
 	    //  OBAtom *atom;
 	    FOR_ATOMS_OF_MOL(atom, mol)
 	    {
+		    string label;
+		    
+		    if(atom->HasData("GMSLABEL"))
+		    {
+			    OBPairData *pd = (OBPairData *) atom->GetData("GMSLABEL");
+			    label=pd->GetValue();
+		    }
+		    else
+		    {
+			    label=etab.GetSymbol(atom->GetAtomicNum());
+		    }
+
+
 		    snprintf(buffer, BUFF_SIZE, "%-8s%3d.0    %14.10f  %14.10f  %14.10f ",
-				    etab.GetSymbol(atom->GetAtomicNum()),
+				    label.c_str(),
 				    atom->GetAtomicNum(),
 				    atom->GetX(),
 				    atom->GetY(),
@@ -1178,7 +1448,7 @@ namespace OpenBabel
 	    }
     }
     return(true);
-  }
+ }
 
   ////////////////////////////////////////////////////////////////
   bool GAMESSTrajFormat::ReadMolecule(OBBase* pOb, OBConversion* pConv)
@@ -1447,7 +1717,7 @@ namespace OpenBabel
 int regex_match(const char *string, char *pattern) { 
 	int status; 
 	regex_t re; 
-	if(regcomp(&re, pattern, REG_EXTENDED|REG_NOSUB) != 0)  
+	if(regcomp(&re, pattern, REG_EXTENDED|REG_NOSUB|REG_ICASE) != 0)  
 		return 0; 
 	status = regexec(&re, string, (size_t)0, NULL, 0); 
 	regfree(&re); 
