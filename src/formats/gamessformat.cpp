@@ -441,7 +441,7 @@ namespace OpenBabel
                 tokenize(vs,buffer);
               }
 	  //}
-          if(strstr(buffer,"COORDINATES OF FRAGMENT") != NULL)
+	if(strstr(buffer,"COORDINATES OF FRAGMENT MULTIPOLE") != NULL)
               {
 		  if(fragonly) {
 			  mol.Clear();
@@ -453,13 +453,13 @@ namespace OpenBabel
                 ifs.getline(buffer,BUFF_SIZE);
 		tokenize(vs,buffer);
                 //while(vs.size() == 4)
-                while(vs.size() == 4) {
-                  /*if (vs.size() == 1) {
+                while(vs.size() > 0 && vs.size() < 5) {
+                  if (vs.size() == 1) {
                     vector<string> vs2;
                     char delim[] = "=";
                     tokenize(vs2,buffer,delim);
                   }
-                  else {*/
+                  else {
                     atom = mol.NewAtom();
                     /* For the included EFP1 potentials,
                      * the atom name may start with "Z"
@@ -476,7 +476,7 @@ namespace OpenBabel
                     y = atof((char*)vs[2].c_str());
                     z = atof((char*)vs[3].c_str());
                     atom->SetVector(x,y,z);
-                  //}
+                  }
 			    
 
                   if (!ifs.getline(buffer,BUFF_SIZE))
@@ -485,6 +485,47 @@ namespace OpenBabel
                 }
               }
       }
+    else if(fragonly && strstr(buffer,"COORDINATES OF FRAGMENT MULTIPOLE") != NULL)
+              {
+			  mol.Clear();
+			  mol.BeginModify();
+                ifs.getline(buffer,BUFF_SIZE);      // column headings
+                ifs.getline(buffer,BUFF_SIZE);
+                ifs.getline(buffer,BUFF_SIZE);    //FRAGNAME
+                ifs.getline(buffer,BUFF_SIZE);
+		tokenize(vs,buffer);
+                //while(vs.size() == 4)
+                while(vs.size() > 0 && vs.size() < 5) {
+                  if (vs.size() == 1) {
+                    vector<string> vs2;
+                    char delim[] = "=";
+                    tokenize(vs2,buffer,delim);
+                  }
+                  else {
+                    atom = mol.NewAtom();
+                    /* For the included EFP1 potentials,
+                     * the atom name may start with "Z"
+                     */
+                    int atomicNum;
+		    if ( vs[0].substr(0,1) == "Z" ) 
+			    atomicNum=etab.GetAtomicNum(vs[0].substr(1,1).c_str()); 
+		    else if (regex_match(vs[0].c_str(),"A[0-9]{2}[A-Z]+"))
+			    atomicNum=etab.GetAtomicNum(vs[0].substr(3,3).c_str()); 
+		    else if(regex_match(vs[0].c_str(),"(O1|H2|H3)"))
+			    atomicNum=etab.GetAtomicNum(vs[0].substr(0,1).c_str()); 
+                    atom->SetAtomicNum(atomicNum);
+                    x = atof((char*)vs[1].c_str());
+                    y = atof((char*)vs[2].c_str());
+                    z = atof((char*)vs[3].c_str());
+                    atom->SetVector(x,y,z);
+                  }
+			    
+
+                  if (!ifs.getline(buffer,BUFF_SIZE))
+                    break;
+                  tokenize(vs,buffer);
+		  }
+	      }
         else if(strstr(buffer,"ELECTROSTATIC MOMENTS") != NULL)
           {
             ifs.getline(buffer,BUFF_SIZE); //-----
@@ -1468,11 +1509,13 @@ namespace OpenBabel
     string str;
     double x,y,z;
     string timestep;
+    string energy;
     //until I learn to cat const char * this works
     string titles(title);
     vector<string> vs;
     unsigned int natoms;
     unsigned int nfrags;
+    bool fragonly = false;
 
     if(!ifs) //there are no more lines
 	    return false;
@@ -1482,7 +1525,101 @@ namespace OpenBabel
 	    return(false);
     }
     
+    if (strstr(buffer,"ENERGY = ") != NULL) {
+    while(strstr(buffer,"ENERGY = ") == NULL)
+    {
+	    if(!ifs.getline(buffer,BUFF_SIZE))
+		    return(false);
+    }
+	    //if(!ifs.getline(buffer,BUFF_SIZE))
+			    //fragonly=true;
 
+    tokenize(vs,buffer);
+    //energy=vs[2];
+    energy=titles+"  "+vs[7]+" "+vs[8]+" "+vs[2];
+    title=energy.c_str();
+    if(!ifs.getline(buffer,BUFF_SIZE))
+	    return(false);
+        if(strstr(buffer,"COORDINATES OF ALL ATOMS ARE (ANGS)") != NULL)
+          {
+            //mol.Clear();
+		  mol.SetTitle(title);
+            mol.BeginModify();
+
+            ifs.getline(buffer,BUFF_SIZE);	// column headings
+            ifs.getline(buffer,BUFF_SIZE);	// ---------------
+            ifs.getline(buffer,BUFF_SIZE);
+            tokenize(vs,buffer);
+            while (vs.size() == 5)
+              {
+                atom = mol.NewAtom();
+		//some people like arbitrary labels
+		OBPairData *dp = new OBPairData;
+		dp->SetAttribute("GMSLABEL");
+		dp->SetOrigin(fileformatInput);
+		dp->SetValue(vs[0]);
+		atom->SetData(dp);
+                atom->SetAtomicNum(atoi(vs[1].c_str())); // Parse the current one
+                x = atof((char*)vs[2].c_str());
+                y = atof((char*)vs[3].c_str());
+                z = atof((char*)vs[4].c_str());
+                atom->SetVector(x,y,z);
+                vs[1].erase(vs[1].size() - 2, 2);
+
+                if (!ifs.getline(buffer,BUFF_SIZE))
+                  break;
+                tokenize(vs,buffer);
+              }
+	  //}
+	if(strstr(buffer,"COORDINATES OF FRAGMENT MULTIPOLE") != NULL)
+              {
+		  if(fragonly) {
+			  mol.Clear();
+			  mol.BeginModify();
+		  }
+                ifs.getline(buffer,BUFF_SIZE);      // column headings
+                ifs.getline(buffer,BUFF_SIZE);
+                ifs.getline(buffer,BUFF_SIZE);    //FRAGNAME
+                ifs.getline(buffer,BUFF_SIZE);
+		tokenize(vs,buffer);
+                //while(vs.size() == 4)
+                while(vs.size() > 0 && vs.size() < 5) {
+                  if (vs.size() == 1) {
+                    vector<string> vs2;
+                    char delim[] = "=";
+                    tokenize(vs2,buffer,delim);
+                  }
+                  else {
+                    atom = mol.NewAtom();
+                    /* For the included EFP1 potentials,
+                     * the atom name may start with "Z"
+                     */
+                    int atomicNum;
+		    if ( vs[0].substr(0,1) == "Z" ) 
+			    atomicNum=etab.GetAtomicNum(vs[0].substr(1,1).c_str()); 
+		    else if (regex_match(vs[0].c_str(),"A[0-9]{2}[A-Z]+"))
+			    atomicNum=etab.GetAtomicNum(vs[0].substr(3,3).c_str()); 
+		    else if(regex_match(vs[0].c_str(),"(O1|H2|H3)"))
+			    atomicNum=etab.GetAtomicNum(vs[0].substr(0,1).c_str()); 
+                    atom->SetAtomicNum(atomicNum);
+                    x = atof((char*)vs[1].c_str());
+                    y = atof((char*)vs[2].c_str());
+                    z = atof((char*)vs[3].c_str());
+                    atom->SetVector(x,y,z);
+                  }
+			    
+
+                  if (!ifs.getline(buffer,BUFF_SIZE))
+                    break;
+                  tokenize(vs,buffer);
+                }
+              }
+      }
+
+
+    }
+    else if (strstr(buffer,"===== MD DATA PACKET =====") != NULL) {
+	    //we have an MD trajectory
     while(strstr(buffer,"===== MD DATA PACKET =====") == NULL)
     {
 	    if(!ifs.getline(buffer,BUFF_SIZE))
@@ -1554,6 +1691,7 @@ namespace OpenBabel
 			    tokenize(vs,buffer);
 		    }
 	    }
+    }
     }
 	    
     if (!pConv->IsOption("b",OBConversion::INOPTIONS))
