@@ -1285,6 +1285,13 @@ namespace OpenBabel
     bool fragonly=false;
     string waterPattern="[OH2]";
     if(waterEfrag){
+	    ifstream kfstream(waterEfrag);
+	    //EFP1 can only have FRAGNAME=[H2ODFT/H2ORHF]
+	    //It is prudent to check wether this is true.
+	    /*if ((strcmp(waterEfrag,"H2ODFT") != 0) || (strcmp(waterEfrag,"H2ORHF")!=0)) {
+		    cerr << "FRAGNAME=" << waterEfrag << " is not allowed." << endl;
+		    return false;
+	    }*/
 	    OBSmartsPattern sp;
 	    sp.Init(waterPattern);
 	    vector<OBMol> mols;
@@ -1369,7 +1376,6 @@ namespace OpenBabel
         ofs << defaultKeywords << endl;
       }
 
-    ifstream kfstream(waterEfrag);
     if(waterEfrag){
 
 	    //string fragname="H2ODFT";
