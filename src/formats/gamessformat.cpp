@@ -509,7 +509,7 @@ namespace OpenBabel
                     int atomicNum;
 		    if ( vs[0].substr(0,1) == "Z" ) 
 			    atomicNum=etab.GetAtomicNum(vs[0].substr(1,1).c_str()); 
-		    else if (regex_match(vs[0].c_str(),"A[0-9]{2}[A-Z]+"))
+		    else if (regex_match(vs[0].c_str(),"A[0-9]{2}"))
 			    atomicNum=etab.GetAtomicNum(vs[0].substr(3,3).c_str()); 
 		    else if(regex_match(vs[0].c_str(),"(O1|H2|H3)"))
 			    atomicNum=etab.GetAtomicNum(vs[0].substr(0,1).c_str()); 
@@ -1009,8 +1009,11 @@ namespace OpenBabel
                     int atomicNum;
                     if( vs[0].substr(0,1) == "Z" || vs[0].substr(0,1) == "z" ) 
                       atomicNum=etab.GetAtomicNum(vs[0].substr(1,1).c_str());
-                    else
-                      atomicNum=etab.GetAtomicNum(vs[0].substr(0,1).c_str());
+		    else if (regex_match(vs[0].c_str(),"A[0-9]{2}")) {
+			    atomicNum=etab.GetAtomicNum(vs[0].substr(3,3).c_str()); 
+                    }
+		    else if(regex_match(vs[0].c_str(),"(O1|H2|H3)"))
+			    atomicNum=etab.GetAtomicNum(vs[0].substr(0,1).c_str()); 
                     atom->SetAtomicNum(atomicNum);
                     x = atof((char*)vs[1].c_str());
                     y = atof((char*)vs[2].c_str());
@@ -1277,7 +1280,31 @@ namespace OpenBabel
     const char *fragnameFile = pConv->IsOption("e",OBConversion::OUTOPTIONS);
     const char *waterEfrag = pConv->IsOption("w",OBConversion::OUTOPTIONS);
 
-    string defaultKeywords = " $CONTRL COORD=UNIQUE UNITS=ANGS $END";
+    //Is there anything but water?
+    //It is very important to know if we are EFP or QM/EFP input
+    bool fragonly=false;
+    string waterPattern="[OH2]";
+    if(waterEfrag){
+	    OBSmartsPattern sp;
+	    sp.Init(waterPattern);
+	    vector<OBMol> mols;
+	    vector<OBMol>::iterator itr;
+	    mols = mol.Separate();
+	    int qcount=0;
+	    for(itr=mols.begin();itr!=mols.end();++itr) {
+		    bool water=sp.Match(*itr);
+		    if(!water) 
+			    qcount++;
+	    }
+	    if (qcount == 0)
+		    fragonly=true;
+    }
+
+    string defaultKeywords;
+    if (waterEfrag && fragonly)
+	    defaultKeywords = " $CONTRL COORD=FRAGONLY UNITS=ANGS $END";
+    else
+	    defaultKeywords = " $CONTRL COORD=UNIQUE UNITS=ANGS $END";
 
     if(keywords)
       {
@@ -1347,7 +1374,7 @@ namespace OpenBabel
 
 	    //string fragname="H2ODFT";
 	    OBSmartsPattern sp;
-	    sp.Init("[OH2]");
+	    sp.Init(waterPattern);
 	    vector<vector<int> > maplist;
 	    vector<vector<int> >::iterator i;
 	    OBAtom *o1,*h2, *h3;
@@ -1360,6 +1387,7 @@ namespace OpenBabel
 	    //first the $DATA group is printed as anything not water
 	    //this can be more than one physical molecule.
 	    //only C1 symmetry is allowed.
+	    if(!fragonly) {
 	    ofs << endl << " $DATA" << endl;
 	    ofs << mol.GetTitle() << endl;
 	    ofs << "C1" << endl;
@@ -1391,6 +1419,9 @@ namespace OpenBabel
 
 	    }
 	    ofs << " $END" << endl;
+	    }
+	    else
+		    ofs << endl;
 	    //now repeat and print $EFRAG
 	    ofs << " $EFRAG" << endl;
 	    ofs << "COORD=CART" << endl;
@@ -1414,8 +1445,6 @@ namespace OpenBabel
 				    o1->GetZ());
 		    ofs << buffer << endl;
 		    int hcount=0;
-		    //for some reason repeating "o1->NextNbrAtom(k);" causes a
-		    //segmentation error.
 		    for (h2 = o1->BeginNbrAtom(k);h2;h2 = o1->NextNbrAtom(k)){
 			    hcount++;
 			    char* hname;
@@ -1538,8 +1567,15 @@ namespace OpenBabel
     //energy=vs[2];
     energy=titles+"  "+vs[7]+" "+vs[8]+" "+vs[2];
     title=energy.c_str();
-    if(!ifs.getline(buffer,BUFF_SIZE))
+    if(!ifs.getline(buffer,BUFF_SIZE)) 
 	    return(false);
+	    
+    tokenize(vs,buffer);
+    if(vs.size() == 0) {
+	    fragonly=true;
+	    ifs.getline(buffer,BUFF_SIZE);
+    }
+	//if(!fragonly)
         if(strstr(buffer,"COORDINATES OF ALL ATOMS ARE (ANGS)") != NULL)
           {
             //mol.Clear();
@@ -1615,6 +1651,49 @@ namespace OpenBabel
                 }
               }
       }
+    //else if(fragonly)
+    else if(fragonly && strstr(buffer,"COORDINATES OF FRAGMENT MULTIPOLE") != NULL)
+              {
+			  //mol.Clear();
+		  mol.SetTitle(title);
+			  mol.BeginModify();
+                ifs.getline(buffer,BUFF_SIZE);      // column headings
+                ifs.getline(buffer,BUFF_SIZE);
+                ifs.getline(buffer,BUFF_SIZE);    //FRAGNAME
+                ifs.getline(buffer,BUFF_SIZE);
+		tokenize(vs,buffer);
+                //while(vs.size() == 4)
+                while(vs.size() > 0 && vs.size() < 5) {
+                  if (vs.size() == 1) {
+                    vector<string> vs2;
+                    char delim[] = "=";
+                    tokenize(vs2,buffer,delim);
+                  }
+                  else {
+                    atom = mol.NewAtom();
+                    /* For the included EFP1 potentials,
+                     * the atom name may start with "Z"
+                     */
+                    int atomicNum;
+		    if ( vs[0].substr(0,1) == "Z" ) 
+			    atomicNum=etab.GetAtomicNum(vs[0].substr(1,1).c_str()); 
+		    else if (regex_match(vs[0].c_str(),"A[0-9]{2}[A-Z]+"))
+			    atomicNum=etab.GetAtomicNum(vs[0].substr(3,3).c_str()); 
+		    else if(regex_match(vs[0].c_str(),"(O1|H2|H3)"))
+			    atomicNum=etab.GetAtomicNum(vs[0].substr(0,1).c_str()); 
+                    atom->SetAtomicNum(atomicNum);
+                    x = atof((char*)vs[1].c_str());
+                    y = atof((char*)vs[2].c_str());
+                    z = atof((char*)vs[3].c_str());
+                    atom->SetVector(x,y,z);
+                  }
+			    
+
+                  if (!ifs.getline(buffer,BUFF_SIZE))
+                    break;
+                  tokenize(vs,buffer);
+		  }
+	      }
 
 
     }
