@@ -1703,7 +1703,8 @@ namespace OpenBabel
 
 
     }
-    else if (strstr(buffer,"===== MD DATA PACKET =====") != NULL) {
+    //else if (strstr(buffer,"===== MD DATA PACKET =====") != NULL) {
+else {
 	    //we have an MD trajectory
     while(strstr(buffer,"===== MD DATA PACKET =====") == NULL)
     {
