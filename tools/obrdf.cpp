@@ -169,7 +169,7 @@ int main(int argc, char **argv)
 
 	for (int i=1;i<=nbin;i++) {
 		double dist=(double(i)-0.5)*width;
-		cout << i << " " << dist << " " << gr[i] << " " << gs[i] << endl;
+		cout << i << " " << dist << " " << gr[i] << " " << gs[i] << " " << hist[i] << endl;
 
 	}
 
