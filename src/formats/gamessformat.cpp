@@ -1638,7 +1638,7 @@ namespace OpenBabel
                      */
                     int atomicNum;
 		    if ( vs[0].substr(0,1) == "Z" ) 
-			    atomicNum=etab.GetAtomicNum(vs[0].substr(1,1).c_str()); 
+			    atomicNum=etab.GetAtomicNum(vs[0].substr(1,1).c_str());
 		    else if (regex_match(vs[0].c_str(),"A[0-9]{2}[A-Z]+"))
 			    atomicNum=etab.GetAtomicNum(vs[0].substr(3,3).c_str()); 
 		    else if(regex_match(vs[0].c_str(),"(O1|H2|H3)"))
@@ -1763,7 +1763,9 @@ else {
 		    {
 			    atom = mol.NewAtom();
 			    int atomicNum;
-			    if (regex_match(vs[0].c_str(),"A[0-9]{2}[A-Z]+"))
+			    if ( vs[0].substr(0,1) == "Z" ) 
+				    atomicNum=etab.GetAtomicNum(vs[0].substr(1,1).c_str());
+			    else if (regex_match(vs[0].c_str(),"A[0-9]{2}[A-Z]+"))
 				    atomicNum=etab.GetAtomicNum(vs[0].substr(3,3).c_str()); 
 			    else if(regex_match(vs[0].c_str(),"(O1|H2|H3)"))
 				    atomicNum=etab.GetAtomicNum(vs[0].substr(0,1).c_str()); 

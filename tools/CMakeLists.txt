@@ -11,6 +11,7 @@ set(tools
       obrotamer
       obrotate
       obrdf
+      obrdfw
       obsym
 )
 
