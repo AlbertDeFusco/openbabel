@@ -12,6 +12,7 @@ set(tools
       obrotate
       obrdf
       obrdfw
+      obrdfc
       obsym
 )
 
