@@ -52,10 +52,46 @@ public:
     virtual bool ReadMolecule(OBBase* pOb, OBConversion* pConv);
     virtual bool WriteMolecule(OBBase* pOb, OBConversion* pConv);
 };
-//***
 
 //Make an instance of the format class
 FHIaimsFormat theFHIaimsFormat;
+
+class FHIaimsOutputFormat : public OBMoleculeFormat
+{
+public:
+    //Register this format type ID
+    FHIaimsOutputFormat()
+    {
+        OBConversion::RegisterFormat("aims",this);
+    }
+
+  virtual const char* Description() //required
+  {
+    return
+      "FHIaims Output format\n"
+      "Read Options e.g. -as\n"
+      " s  Output single bonds only\n"
+      " b  Disable bonding entirely\n\n";
+  };
+
+  virtual const char* SpecificationURL()
+  {return "http://www.fhi-berlin.mpg.de/th/aims/";}; //optional
+
+    //Flags() can return be any the following combined by | or be omitted if none apply
+    // NOTREADABLE  READONEONLY  NOTWRITABLE  WRITEONEONLY
+    virtual unsigned int Flags()
+    {
+      return READONEONLY | NOTWRITABLE;
+    };
+
+    //*** This section identical for most OBMol conversions ***
+    ////////////////////////////////////////////////////
+    /// The "API" interface functions
+    virtual bool ReadMolecule(OBBase* pOb, OBConversion* pConv);
+};
+//***
+
+FHIaimsOutputFormat theFHIaimsOutputFormat;
 
 /////////////////////////////////////////////////////////////////
 bool FHIaimsFormat::ReadMolecule(OBBase* pOb, OBConversion* pConv)
@@ -177,6 +213,160 @@ bool FHIaimsFormat::WriteMolecule(OBBase* pOb, OBConversion* pConv)
         }
     }
 
+    return(true);
+}
+
+bool FHIaimsOutputFormat::ReadMolecule(OBBase* pOb, OBConversion* pConv)
+{
+
+    OBMol* pmol = pOb->CastAndClear<OBMol>();
+    if(pmol==NULL)
+        return false;
+
+
+    //Define some references so we can use the old parameter names
+    istream &ifs = *pConv->GetInStream();
+    OBMol &mol = *pmol;
+    const char* title = pConv->GetTitle();
+
+    char buffer[BUFF_SIZE];
+    string str;
+    double x,y,z;
+    OBAtom *atom;
+    vector<string> vs;
+    vector<vector3> lattice;
+    bool optimization=false;
+
+    mol.BeginModify();
+
+    while (ifs.getline(buffer,BUFF_SIZE)) {
+
+      //if(strstr(buffer,"Geometry relaxation not requested") == NULL)
+      if(strstr(buffer,"Geometry relaxation: ") != NULL)
+        optimization=true;
+
+      //this should be the first geometry encountered
+      if (strstr(buffer, "Input geometry:") != NULL) {
+
+        //if Unit cell: then read 3 lines
+        ifs.getline(buffer,BUFF_SIZE);
+        if(strstr(buffer,"Unit cell:") != NULL) {
+          ifs.getline(buffer,BUFF_SIZE);
+          tokenize(vs,buffer);
+          while (vs.size() == 4) {
+            x = atof((char*)vs[1].c_str());
+            y = atof((char*)vs[2].c_str());
+            z = atof((char*)vs[3].c_str());
+            lattice.push_back(vector3(x, y, z));
+
+            if (!ifs.getline(buffer,BUFF_SIZE))
+              break;
+            tokenize(vs,buffer);
+          }
+        }
+        else
+        {
+          ifs.getline(buffer,BUFF_SIZE);
+        }
+        if(!optimization)
+        {
+          //for single-point runs, we can read this geometry
+          if (strstr(buffer,"Atomic structure:") != NULL) {
+            ifs.getline(buffer,BUFF_SIZE); //skip headers
+            ifs.getline(buffer,BUFF_SIZE); //grab first atom
+            tokenize(vs,buffer);
+            while (vs.size() == 7) {
+              atom = mol.NewAtom();
+              x = atof((char*)vs[4].c_str());
+              y = atof((char*)vs[5].c_str());
+              z = atof((char*)vs[6].c_str());
+              atom->SetVector(x,y,z); //set coordinates
+              //set atomic number
+              int atomicNum = etab.GetAtomicNum(vs[3].c_str());
+              atom->SetAtomicNum(atomicNum);
+
+              if (!ifs.getline(buffer,BUFF_SIZE))
+                break;
+              tokenize(vs,buffer);
+            }
+          }
+        }
+      }
+      //skip right to the last geometry
+      if (strstr(buffer, "Final atomic structure") != NULL) {
+        mol.EndModify();
+        mol.BeginModify();
+        ifs.getline(buffer,BUFF_SIZE); //skip headers
+        ifs.getline(buffer,BUFF_SIZE); //grab first atom
+        tokenize(vs,buffer);
+        while (vs.size() == 5) {
+          atom = mol.NewAtom();
+          x = atof((char*)vs[1].c_str());
+          y = atof((char*)vs[2].c_str());
+          z = atof((char*)vs[3].c_str());
+          atom->SetVector(x,y,z); //set coordinates
+          //set atomic number
+          int atomicNum = etab.GetAtomicNum(vs[4].c_str());
+          atom->SetAtomicNum(atomicNum);
+
+          if (!ifs.getline(buffer,BUFF_SIZE))
+            break;
+          tokenize(vs,buffer);
+        }
+      }
+    }
+
+
+    /*
+       ifs.getline(buffer,BUFF_SIZE);  // skip headers
+    // atom X Y Z element (in real-space Angstroms)
+    tokenize(vs,buffer);
+    if (vs.size() < 5)
+    continue; // invalid line
+    atom = mol.NewAtom();
+    x = atof((char*)vs[1].c_str());
+    y = atof((char*)vs[2].c_str());
+    z = atof((char*)vs[3].c_str());
+    atom->SetVector(x,y,z); //set coordinates
+
+          //set atomic number
+          int atomicNum = etab.GetAtomicNum(vs[4].c_str());
+          atom->SetAtomicNum(atomicNum);
+
+        } else if (strstr(buffer, "lattice_vector") != NULL) {
+          // lattice_vector X Y Z (in real-space Angstroms)
+          tokenize(vs,buffer);
+          if (vs.size() < 4)
+            continue;
+
+          x = atof((char*)vs[1].c_str());
+          y = atof((char*)vs[2].c_str());
+          z = atof((char*)vs[3].c_str());
+          lattice.push_back(vector3(x, y, z));
+        }
+      //}
+    }
+    */
+
+    if (!pConv->IsOption("b",OBConversion::INOPTIONS))
+      mol.ConnectTheDots();
+    if (!pConv->IsOption("s",OBConversion::INOPTIONS) && !pConv->IsOption("b",OBConversion::INOPTIONS))
+      mol.PerceiveBondOrders();
+
+    // clean out remaining blank lines
+    while(ifs.peek() != EOF && ifs.good() &&
+	  (ifs.peek() == '\n' || ifs.peek() == '\r'))
+      ifs.getline(buffer,BUFF_SIZE);
+
+      mol.EndModify();
+    // Check if there are lattice vectors and add them
+    if (lattice.size() == 3) {
+      OBUnitCell *uc = new OBUnitCell;
+      uc->SetOrigin(fileformatInput);
+      uc->SetData(lattice[0], lattice[1], lattice[2]);
+      mol.SetData(uc);
+    }
+    mol.SetTitle(title);
     return(true);
 }
 
