@@ -53,7 +53,7 @@ public:
   private:
     int _ncols, _nrows, _nmax;
     vector<OBBase*> _objects;
-    CairoPainter _cairopainter;
+    CairoPainter _cairopainter; //now local variable in WriteMolecule()
 };
   ////////////////////////////////////////////////////
 
@@ -162,6 +162,8 @@ bool PNG2Format::WriteMolecule(OBBase* pOb, OBConversion* pConv)
 
   OBMol workingmol(*pmol); // Copy the molecule
 
+  // CairoPainter cairopainter;
+
   if (!pConv->IsOption("pngwritechemobject") || (!_nrows && !_ncols))
   { //If WriteMolecule called directly, e.g. from OBConversion::Write()
     _nmax = _nrows = _ncols = 1;
@@ -202,12 +204,28 @@ bool PNG2Format::WriteMolecule(OBBase* pOb, OBConversion* pConv)
   pp = pConv->IsOption("h");
   int height  = pp ? atoi(pp) : size;
 
+  bool transparent=false;
+  string background, bondcolor;
+  const char* bg = pConv->IsOption("b");
+  background = bg ? "black" : "white";
+  bondcolor  = bg ? "white" : "black";
+  if(bg && (!strcmp(bg, "none") || bg[0]=='0'))
+  {
+    transparent = true;
+    bondcolor = "gray";
+  }
+  const char* bcol = pConv->IsOption("B");
+  if(bcol && *bcol)
+    bondcolor = bcol;
+  if(bg && *bg)
+    background = bg;
+
   string text;
   if(!pConv->IsOption("d"))
+  {    
     text = pmol->GetTitle();
-  else
-    text = pmol->GetTitle();
-  _cairopainter.SetTitle(text);
+    _cairopainter.SetTitle(text);
+  }
 
   if(pConv->GetOutputIndex()==1) {
     _cairopainter.SetWidth(width);
@@ -215,6 +233,12 @@ bool PNG2Format::WriteMolecule(OBBase* pOb, OBConversion* pConv)
     _cairopainter.SetTableSize(_nrows, _ncols);
   }
   _cairopainter.SetIndex(pConv->GetOutputIndex());
+
+  // Detect if cropping should be done, also remove title in that case...
+  if((pConv->GetOutputIndex()==1) && pConv->IsLast() && pConv->IsOption("m")) {
+    _cairopainter.SetCropping(true);
+    _cairopainter.SetTitle("");
+  }
 
   OBDepict depictor(&_cairopainter);
 
@@ -229,6 +253,10 @@ bool PNG2Format::WriteMolecule(OBBase* pOb, OBConversion* pConv)
     AliasData::RevertToAliasForm(workingmol);
     depictor.SetAliasMode();
   }
+  _cairopainter.SetBondColor(bondcolor);
+  depictor.SetBondColor(bondcolor);
+  _cairopainter.SetBackground(background);
+  _cairopainter.SetTransparent(transparent);
   if(pConv->IsOption("t"))
     _cairopainter.SetPenWidth(4);
   else

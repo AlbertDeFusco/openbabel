@@ -28,6 +28,7 @@
 
 #include <openbabel/stereo/cistrans.h>
 #include <openbabel/stereo/tetrahedral.h>
+#include <openbabel/elements.h>
 
 #include <iterator> // std::istream_iterator
 #include <cassert>
@@ -140,11 +141,16 @@ namespace OpenBabel {
     vector<OBEdgeBase*>::iterator bi;
     for (bond = atom->BeginBond(bi); bond; bond = atom->NextBond(bi)) {
       nbr = bond->GetNbrAtom(atom);
-      if (_frag_atoms.BitIsSet(nbr->GetIdx()) && !(nbr->IsHydrogen()))
+      if (_frag_atoms.BitIsSet(nbr->GetIdx()) && nbr->GetAtomicNum() != OBElements::Hydrogen)
         count++;
     }
 
     return(count);
+  }
+
+  static unsigned int TotalNumberOfBonds(OBAtom* atom)
+  {
+    return atom->GetImplicitHCount() + atom->GetValence();
   }
 
   /**
@@ -167,15 +173,15 @@ namespace OpenBabel {
     vector<OBEdgeBase*>::iterator bi;
     for (bond = atom->BeginBond(bi); bond; bond = atom->NextBond(bi)) {
       nbr = bond->GetNbrAtom(atom);
-      if (_frag_atoms.BitIsSet(nbr->GetIdx()) && !(nbr->IsHydrogen())) {
-        if (bond->IsSingle())        count += 1.0f;
-        else if (bond->IsDouble())   count += 2.0f;
-        else if (bond->IsTriple())   count += 3.0f;
-        else if (bond->IsAromatic()) count += 1.6f;
+      if (_frag_atoms.BitIsSet(nbr->GetIdx()) && nbr->GetAtomicNum() != OBElements::Hydrogen) {
+        if (bond->IsAromatic())
+          count += 1.6f;
+        else
+          count += (float)bond->GetBondOrder();
       }
     }
-    if (atom->GetAtomicNum() == 7 && atom->IsAromatic() && atom->GetImplicitValence() == 3) {
-      count += 1;         // [nH] - add another bond
+    if (atom->GetAtomicNum() == 7 && atom->IsAromatic() && TotalNumberOfBonds(atom) == 3) {
+      count += 1.0f;         // [nH] - add another bond
     }
     return(int(count + 0.5));     // round to nearest int
   }
@@ -232,7 +238,7 @@ namespace OpenBabel {
             if (   _frag_atoms.BitIsOn(nbr_idx)
                 && !used.BitIsOn(nbr_idx)
                 && !curr.BitIsOn(nbr_idx)
-                && !(bond->GetNbrAtom(atom1))->IsHydrogen())
+                && bond->GetNbrAtom(atom1)->GetAtomicNum() != OBElements::Hydrogen)
               next.SetBitOn(nbr_idx);
           }
         }
@@ -263,7 +269,7 @@ namespace OpenBabel {
     ring_atoms.Clear();
 
     sssRings = _pmol->GetSSSR();
-    for (ri = sssRings.begin(); ri != sssRings.end(); ri++) {
+    for (ri = sssRings.begin(); ri != sssRings.end(); ++ri) {
       OBRing *ring = *ri;
       OBBitVec bvtmp = _frag_atoms & ring->_pathset;      // intersection: fragment and ring
       if (bvtmp == ring->_pathset)                        // all ring atoms in fragment?
@@ -355,7 +361,7 @@ namespace OpenBabel {
     // mapping vector of idx-to-index for vp1.
     vector<int> idx2index(_pmol->NumAtoms() + 1, -1);  // natoms + 1
     int index = 0;
-    for (vp_iter = vp1.begin(); vp_iter != vp1.end(); vp_iter++) {
+    for (vp_iter = vp1.begin(); vp_iter != vp1.end(); ++vp_iter) {
       int idx = vp_iter->first->GetIdx();
       idx2index[idx] = index++;
     }
@@ -369,7 +375,7 @@ namespace OpenBabel {
     // sort them into ascending order, and create a sum of (c0 + c1*10^2 + c2*10^4 + ...)
     // which becomes the new class ID (where c0 is the current classID).
 
-    for (vp_iter = vp1.begin(); vp_iter != vp1.end(); vp_iter++) {
+    for (vp_iter = vp1.begin(); vp_iter != vp1.end(); ++vp_iter) {
       atom = vp_iter->first;
       id   = vp_iter->second;
       vector<unsigned int> vtmp;
@@ -380,7 +386,7 @@ namespace OpenBabel {
       }
 
       sort(vtmp.begin(),vtmp.end(),CompareUnsigned);
-      for (m = 100, k = vtmp.begin(); k != vtmp.end(); k++, m*=100)
+      for (m = 100, k = vtmp.begin(); k != vtmp.end(); ++k, m*=100)
         id += *k * m;
       vp2.push_back(pair<OBAtom*,unsigned int> (atom, id));
     }
@@ -409,7 +415,7 @@ namespace OpenBabel {
     // mapping vector of idx-to-index for vp1.
     vector<int> idx2index(mol->NumAtoms() + 1, -1);  // natoms + 1
     int index = 0;
-    for (vp_iter = vp1.begin(); vp_iter != vp1.end(); vp_iter++) {
+    for (vp_iter = vp1.begin(); vp_iter != vp1.end(); ++vp_iter) {
       int idx = vp_iter->first->GetIdx();
       idx2index[idx] = index++;
     }
@@ -423,7 +429,7 @@ namespace OpenBabel {
     // sort them into ascending order, and create a sum of (c0 + c1*10^2 + c2*10^4 + ...)
     // which becomes the new class ID (where c0 is the current classID).
 
-    for (vp_iter = vp1.begin(); vp_iter != vp1.end(); vp_iter++) {
+    for (vp_iter = vp1.begin(); vp_iter != vp1.end(); ++vp_iter) {
       atom = vp_iter->first;
       id   = vp_iter->second;
       vector<unsigned int> vtmp;
@@ -433,7 +439,7 @@ namespace OpenBabel {
       }
 
       sort(vtmp.begin(),vtmp.end(),CompareUnsigned);
-      for (m = 100, k = vtmp.begin(); k != vtmp.end(); k++, m*=100)
+      for (m = 100, k = vtmp.begin(); k != vtmp.end(); ++k, m*=100)
         id += *k * m;
       vp2.push_back(pair<OBAtom*,unsigned int> (atom, id));
     }

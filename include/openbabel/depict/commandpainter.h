@@ -34,11 +34,14 @@ namespace OpenBabel
       void SetFontFamily(const std::string &fontFamily) {} // FIXME
       void SetFontSize(int pointSize);
       void SetFillColor(const OBColor &color);
+      void SetFillRadial(const OBColor &start, const OBColor &end);
       void SetPenColor(const OBColor &color);
       void SetPenWidth(double width);
-      void DrawLine(double x1, double y1, double x2, double y2);
+      double GetPenWidth();
+      void DrawLine(double x1, double y1, double x2, double y2, const std::vector<double> & dashes=std::vector<double>());
       void DrawPolygon(const std::vector<std::pair<double,double> > &points);
       void DrawCircle(double x, double y, double r);
+      void DrawBall(double x, double y, double r, double opacity = 1.0);
       void DrawText(double x, double y, const std::string &text);
       OBFontMetrics GetFontMetrics(const std::string &text);
       //@}
@@ -46,10 +49,11 @@ namespace OpenBabel
       //! @name CommandPainter specific
       //@{
       //@}
- 
-    private:      
+
+    private:
       std::ostream& m_ofs;
       std::streamsize m_oldprec;
+      double m_pen_width;
   };
 
 }

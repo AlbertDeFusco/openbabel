@@ -115,6 +115,17 @@ namespace OpenBabel
   //Make an instance of the format class
   SmiReactFormat theSmiReactFormat;
 
+  static bool IsNotEndChar(char t)
+  {
+    switch (t) {
+    case '\0':
+    case '\t':
+    case ' ':
+      return false;
+    }
+    return true;
+  }
+
   /////////////////////////////////////////////////////////////////
   bool SmiReactFormat::ReadMolecule(OBBase* pOb, OBConversion* pConv)
   {
@@ -174,14 +185,14 @@ namespace OpenBabel
     //Extract reactants and split into individual molecules
     OBMol jreactants;
     s = rsmiles.substr(0,pos);
-    if(!sconv.ReadString(&jreactants, s))
+    if(pos > 0 && !sconv.ReadString(&jreactants, s))
     {
       obErrorLog.ThrowError(__FUNCTION__, "Cannot read reactant", obError);
       return false;
     }
     mols = jreactants.Separate();
     for(itr=mols.begin();itr!=mols.end();++itr)
-      pReact->AddReactant(shared_ptr<OBMol>(new OBMol(*itr)));
+      pReact->AddReactant(obsharedptr<OBMol>(new OBMol(*itr)));
 
     pos2 = rsmiles.find('>', pos+1);
     if(pos2==string::npos)
@@ -201,13 +212,13 @@ namespace OpenBabel
         delete pAgent;
         return false;
       }
-      pReact->AddAgent(shared_ptr<OBMol>(pAgent));
+      pReact->AddAgent(obsharedptr<OBMol>(pAgent));
     }
 
     //Extract products and split into separate molecules
     OBMol jproducts;
     s = rsmiles.substr(pos2+1);
-    if(!sconv.ReadString(&jproducts, s))
+    if(IsNotEndChar(s[0]) && !sconv.ReadString(&jproducts, s))
     {
       obErrorLog.ThrowError(__FUNCTION__, "Cannot read product", obError);
       return false;
@@ -215,7 +226,7 @@ namespace OpenBabel
     mols.clear();
     mols = jproducts.Separate();
     for(itr=mols.begin();itr!=mols.end();++itr)
-      pReact->AddProduct(shared_ptr<OBMol>(new OBMol(*itr)));
+      pReact->AddProduct(obsharedptr<OBMol>(new OBMol(*itr)));
 
     return true;
   }
@@ -247,10 +258,12 @@ namespace OpenBabel
 
     ofs << '>';
 
-    shared_ptr<OBMol> spAgent = pReact->GetAgent();
-    if(spAgent.get())
-      if(!pSmiFormat->WriteMolecule(spAgent.get(), pConv))
-        return false;
+    OBMol jAgents;
+    for (int i = 0; i<pReact->NumAgents(); ++i)
+      jAgents += *(pReact->GetAgent(i));
+
+    if(!pSmiFormat->WriteMolecule(&jAgents, pConv))
+      return false;
 
     ofs << '>';
 

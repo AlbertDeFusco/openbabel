@@ -16,15 +16,13 @@ GNU General Public License for more details.
 #ifndef OB_SHARED_PTR_H
 #define OB_SHARED_PTR_H
 
-#ifdef USE_BOOST
-  #include <boost/shared_ptr.hpp>
-  #define shared_ptr boost::shared_ptr
+#include "openbabel/babelconfig.h"
+#include OB_SHARED_PTR_HEADER
+
+#ifdef __cpp_alias_templates
+  template<class t> using obsharedptr = OB_SHARED_PTR_IMPLEMENTATION<t>;
 #else
-  #include <memory>
-  #if __GNUC__ == 4  //&& __GNUC_MINOR__ < 3  removed at the suggestion of Konstantin Tokarev
-    #include <tr1/memory>
-  #endif
-  using std::tr1::shared_ptr;
+  #define obsharedptr OB_SHARED_PTR_IMPLEMENTATION
 #endif
 
 #endif // OB_SHARED_PTR_H

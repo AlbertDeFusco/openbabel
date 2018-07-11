@@ -20,10 +20,13 @@ GNU General Public License for more details.
 #define OB_MOLECULEFORMAT_H
 
 #ifdef _MSC_VER
-  #include <hash_map>
+  #include <unordered_map>
 #endif
 
-#if __GNUC__ == 4 && __GNUC_MINOR__ >= 1
+#include <ciso646>  // detect std::lib
+#ifdef _LIBCPP_VERSION
+  #include <unordered_map>
+#elif __GNUC__ == 4 && __GNUC_MINOR__ >= 1
   #include <tr1/unordered_map>
 #elif defined(USE_BOOST)
   #include <boost/tr1/unordered_map.hpp>
@@ -39,6 +42,7 @@ GNU General Public License for more details.
 #include <openbabel/obconversion.h>
 #include <typeinfo>
 #include <openbabel/descriptor.h>
+#include <openbabel/elements.h>
 #include <set>
 
 namespace OpenBabel {
@@ -140,7 +144,9 @@ public:
 #endif
 
 #ifdef _MSC_VER
-  typedef stdext::hash_map<std::string, unsigned> NameIndexType;
+  typedef std::tr1::unordered_map<std::string, unsigned> NameIndexType;
+#elif defined(_LIBCPP_VERSION)
+  typedef std::unordered_map<std::string, unsigned> NameIndexType;
 #elif (__GNUC__ == 4 && __GNUC_MINOR__ >= 1 && !defined(__APPLE_CC__)) || defined (USE_BOOST)
   typedef std::tr1::unordered_map<std::string, unsigned> NameIndexType;
 #else

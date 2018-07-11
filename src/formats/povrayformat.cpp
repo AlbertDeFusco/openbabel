@@ -27,6 +27,7 @@ GNU General Public License for more details.
 #include <string>
 #include <sstream>
 #include <cctype>
+#include <functional>
 
 /* ---- Max. length of a atom-label ---- */
 #define StrLen 32
@@ -364,7 +365,7 @@ namespace OpenBabel
         /* ---- Write full description of atom i ---- */
         ofs << "#declare " << prefix << "_atom" << i << " = ";
         ofs << "object {" << endl
-            << "\t  Atom_" << etab.GetSymbol(atom->GetAtomicNum()) << endl
+            << "\t  Atom_" << OBElements::GetSymbol(atom->GetAtomicNum()) << endl
             << "\t  translate " << prefix << "_pos_" << i << endl << "\t }" << endl;
 
       }

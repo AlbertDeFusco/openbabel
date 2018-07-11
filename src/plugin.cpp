@@ -18,6 +18,7 @@ General Public License for more details.
 
 #include <openbabel/babelconfig.h>
 #include <openbabel/plugin.h>
+#include <openbabel/oberror.h>
 
 #include <iterator>
 
@@ -45,7 +46,6 @@ int OBPlugin::AllPluginsLoaded = 0;
 void OBPlugin::LoadAllPlugins()
 {
   int count = 0;
-
 #if  defined(USING_DYNAMIC_LIBS)
   // Depending on availability, look successively in
   // FORMATFILE_DIR, executable directory or current directory
@@ -59,6 +59,7 @@ void OBPlugin::LoadAllPlugins()
 
   vector<string> files;
   if(!DLHandler::findFiles(files,DLHandler::getFormatFilePattern(),TargetDir)) {
+    obErrorLog.ThrowError(__FUNCTION__, "Unable to find OpenBabel plugins. Try setting the BABEL_LIBDIR environment variable.", obError);
     return;
   }
 
@@ -66,6 +67,11 @@ void OBPlugin::LoadAllPlugins()
   for(itr=files.begin();itr!=files.end();++itr) {
     if(DLHandler::openLib(*itr))
       count++;
+  }
+  if(!count) {
+    string error = "No valid OpenBabel plugs found in "+TargetDir;
+    obErrorLog.ThrowError(__FUNCTION__, error, obError);
+    return;
   }
 #else
   count = 1; // Avoid calling this function several times
@@ -231,6 +237,7 @@ std::vector<std::string> EnableStaticPlugins()
   plugin_ids.push_back(reinterpret_cast<OBPlugin*>(&t41Format__)->GetID());
   plugin_ids.push_back(reinterpret_cast<OBPlugin*>(&theAlchemyFormat)->GetID());
   plugin_ids.push_back(reinterpret_cast<OBPlugin*>(&theAmberPrepFormat)->GetID());
+  plugin_ids.push_back(reinterpret_cast<OBPlugin*>(&theAoforceFormat)->GetID());
   plugin_ids.push_back(reinterpret_cast<OBPlugin*>(&theOBAPIInterface)->GetID());
   plugin_ids.push_back(reinterpret_cast<OBPlugin*>(&theBallStickFormat)->GetID());
   plugin_ids.push_back(reinterpret_cast<OBPlugin*>(&theBGFFormat)->GetID());
@@ -255,6 +262,7 @@ std::vector<std::string> EnableStaticPlugins()
   plugin_ids.push_back(reinterpret_cast<OBPlugin*>(&theDlpolyConfigFormat)->GetID());
   plugin_ids.push_back(reinterpret_cast<OBPlugin*>(&theDlpolyHISTORYFormat)->GetID());
   plugin_ids.push_back(reinterpret_cast<OBPlugin*>(&theDMolFormat)->GetID());
+  plugin_ids.push_back(reinterpret_cast<OBPlugin*>(&theEXYZFormat)->GetID());
   plugin_ids.push_back(reinterpret_cast<OBPlugin*>(&theFASTAFormat)->GetID());
   plugin_ids.push_back(reinterpret_cast<OBPlugin*>(&theFastSearchFormat)->GetID());
   plugin_ids.push_back(reinterpret_cast<OBPlugin*>(&theFCHKFormat)->GetID());
@@ -308,6 +316,7 @@ std::vector<std::string> EnableStaticPlugins()
 #ifdef HAVE_LIBZ
   plugin_ids.push_back(reinterpret_cast<OBPlugin*>(&thePNGFormat)->GetID());
 #endif
+  plugin_ids.push_back(reinterpret_cast<OBPlugin*>(&thePointCloudFormat)->GetID());
   plugin_ids.push_back(reinterpret_cast<OBPlugin*>(&thePovrayFormat)->GetID());
   plugin_ids.push_back(reinterpret_cast<OBPlugin*>(&thePQRFormat)->GetID());
   plugin_ids.push_back(reinterpret_cast<OBPlugin*>(&thePQSFormat)->GetID());
@@ -319,6 +328,7 @@ std::vector<std::string> EnableStaticPlugins()
   plugin_ids.push_back(reinterpret_cast<OBPlugin*>(&theRXNFormat)->GetID());
   plugin_ids.push_back(reinterpret_cast<OBPlugin*>(&theShelXFormat)->GetID());
   plugin_ids.push_back(reinterpret_cast<OBPlugin*>(&theSMIFormat)->GetID());
+  plugin_ids.push_back(reinterpret_cast<OBPlugin*>(&theSTLFormat)->GetID());
   plugin_ids.push_back(reinterpret_cast<OBPlugin*>(&theCANSMIFormat)->GetID());
   plugin_ids.push_back(reinterpret_cast<OBPlugin*>(&theFIXFormat)->GetID());
   plugin_ids.push_back(reinterpret_cast<OBPlugin*>(&theSVGFormat)->GetID());
@@ -351,6 +361,8 @@ std::vector<std::string> EnableStaticPlugins()
 #ifdef HAVE_REGEX_H
   plugin_ids.push_back(reinterpret_cast<OBPlugin*>(&theGAMESSUKInputFormat)->GetID());
   plugin_ids.push_back(reinterpret_cast<OBPlugin*>(&theGAMESSUKOutputFormat)->GetID());
+  plugin_ids.push_back(reinterpret_cast<OBPlugin*>(&theOrcaOutputFormat)->GetID());
+  plugin_ids.push_back(reinterpret_cast<OBPlugin*>(&theOrcaInputFormat)->GetID());
 #endif
 
   // descriptors
@@ -377,6 +389,12 @@ std::vector<std::string> EnableStaticPlugins()
   plugin_ids.push_back(reinterpret_cast<OBPlugin*>(&thefingerprint2)->GetID());
   plugin_ids.push_back(reinterpret_cast<OBPlugin*>(&FP3PatternFP)->GetID());
   plugin_ids.push_back(reinterpret_cast<OBPlugin*>(&FP4PatternFP)->GetID());
+  plugin_ids.push_back(reinterpret_cast<OBPlugin*>(&theECFP0)->GetID());
+  plugin_ids.push_back(reinterpret_cast<OBPlugin*>(&theECFP2)->GetID());
+  plugin_ids.push_back(reinterpret_cast<OBPlugin*>(&theECFP4)->GetID());
+  plugin_ids.push_back(reinterpret_cast<OBPlugin*>(&theECFP6)->GetID());
+  plugin_ids.push_back(reinterpret_cast<OBPlugin*>(&theECFP8)->GetID());
+  plugin_ids.push_back(reinterpret_cast<OBPlugin*>(&theECFP10)->GetID());
 
   // forcefields
   plugin_ids.push_back(reinterpret_cast<OBPlugin*>(&theForceFieldGaff)->GetID());
@@ -412,9 +430,14 @@ std::vector<std::string> EnableStaticPlugins()
   // charges
   plugin_ids.push_back(reinterpret_cast<OBPlugin*>(&theGasteigerCharges)->GetID());
   plugin_ids.push_back(reinterpret_cast<OBPlugin*>(&theMMFF94Charges)->GetID());
+  plugin_ids.push_back(reinterpret_cast<OBPlugin*>(&theNoCharges)->GetID());
+  plugin_ids.push_back(reinterpret_cast<OBPlugin*>(&theFromFileCharges)->GetID());
 #ifdef HAVE_EIGEN
   plugin_ids.push_back(reinterpret_cast<OBPlugin*>(&theQEqCharges)->GetID());
   plugin_ids.push_back(reinterpret_cast<OBPlugin*>(&theQTPIECharges)->GetID());
+#endif
+#ifdef HAVE_EIGEN3
+  plugin_ids.push_back(reinterpret_cast<OBPlugin*>(&theEQEqCharges)->GetID());
 #endif
 
   return plugin_ids;

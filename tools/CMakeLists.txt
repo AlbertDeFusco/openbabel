@@ -18,6 +18,7 @@ else(MINIMAL_BUILD)
         obrotate
         obsym
         obtautomer
+        obthermo
      )
   if(EIGEN3_FOUND)
     set(tools
@@ -145,6 +146,11 @@ else(BUILD_SHARED)
   endif(NOT BUILD_MIXED)
 
   install(TARGETS babel
+          RUNTIME DESTINATION bin
+          LIBRARY DESTINATION lib${LIB_SUFFIX}
+          ARCHIVE DESTINATION lib${LIB_SUFFIX})
+
+  install(TARGETS obabel
           RUNTIME DESTINATION bin
           LIBRARY DESTINATION lib${LIB_SUFFIX}
           ARCHIVE DESTINATION lib${LIB_SUFFIX})

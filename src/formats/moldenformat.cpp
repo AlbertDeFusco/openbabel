@@ -29,6 +29,7 @@
 #include <vector>
 #include <sstream>
 #include <cstring>
+#include <cstdlib>
 // reference: http://www.cmbi.ru.nl/molden/molden_format.html
 
 #include <openbabel/obconversion.h>
@@ -112,6 +113,10 @@ bool OBMoldenFormat::ReadMolecule( OBBase* pOb, OBConversion* pConv )
     std::vector< std::vector< vector3 > > Lx;
     std::vector<double> Frequencies, Intensities;
 
+    std::vector< std::vector< vector3 > > conformers; // multiple geometries
+    std::vector< std::vector< vector3 > > forces;
+    std::vector<double> energies;
+
     pmol->BeginModify();
     pmol->SetDimension( 3 );
     string lineBuffer;
@@ -120,9 +125,9 @@ bool OBMoldenFormat::ReadMolecule( OBBase* pOb, OBConversion* pConv )
       {
         if( lineBuffer.find( "[Atoms]" ) != string::npos ||
             lineBuffer.find( "[ATOMS]" ) != string::npos ) {
+          unsigned int ecpLines = 0;
           double factor = 1.; // Angstrom
           if( lineBuffer.find( "AU" ) != string::npos ) factor = BOHR_TO_ANGSTROM; // Bohr
-          getline( ifs, lineBuffer );
           while( getline( ifs, lineBuffer ) )
             {
               if( lineBuffer == "" ) continue;
@@ -131,15 +136,99 @@ bool OBMoldenFormat::ReadMolecule( OBBase* pOb, OBConversion* pConv )
               string atomName;
               int atomId;
               int atomicNumber;
+              int valenceCharge;
               double x, y, z;
-              is >> atomName >> atomId >> atomicNumber >> x >> y >> z;
+              is >> atomName >> atomId >> valenceCharge >> x >> y >> z;
               OBAtom* atom = pmol->NewAtom();
               if( !atom ) break;
+              atomicNumber = OBElements::GetAtomicNum(atomName.c_str());
               atom->SetAtomicNum( atomicNumber );
               atom->SetVector( x * factor, y * factor, z * factor );
-              getline( ifs, lineBuffer );
+              if (atomicNumber-valenceCharge!=0){
+                OBPairData* ecpData = new OBPairData();
+                ecpData->SetAttribute("ecp");
+                std::ostringstream os;
+                os << atomicNumber-valenceCharge;
+                ecpData->SetValue(os.str());
+                atom->SetData(ecpData);
+                ++ecpLines;
+              }
             }
+          if (ecpLines!=0){
+              cerr << "WARNING: element number given in 3rd column does not agree with element name on " << ecpLines << " lines." << endl
+                   << "         Difference between expected nuclear charge and given element number saved to atom property 'ecp'." << endl;
+          }
         } // "[Atoms]" || "[ATOMS]"
+        if ( lineBuffer.find( "[GEOMETRIES] (XYZ)" ) != string::npos ) {
+          while( getline( ifs, lineBuffer ) ) {
+              if( lineBuffer == "" ) continue;
+              if( lineBuffer.find( "[" ) != string::npos ) break;
+
+              // should give us a number of atoms (i.e., this is an XYZ-format file)
+              unsigned int natoms;
+              bool createAtoms = false;
+
+              if (sscanf(lineBuffer.c_str(), "%d", &natoms) == 0 || !natoms) {
+                obErrorLog.ThrowError(__FUNCTION__,
+                                      "Problems reading an XYZ geometry: The first line must contain the number of atoms.", obWarning);
+//                return(false);
+              }
+              if (pmol->NumAtoms() != 0 && pmol->NumAtoms() != natoms) {
+                obErrorLog.ThrowError(__FUNCTION__,
+                                      "Problems reading an XYZ geometry: The first line must contain the number of atoms.", obWarning);
+//                return(false);
+              } else if (pmol->NumAtoms() == 0) {
+                createAtoms = true;
+              }
+
+              // next line should be the energy
+              double energy;
+              getline( ifs, lineBuffer );
+              energy = atof(lineBuffer.c_str());
+              if (fabs(energy) < 1.0e-8 ) {
+                obErrorLog.ThrowError(__FUNCTION__,
+                                      "Problems reading an XYZ geometry: The second line should contain the energy.", obWarning);
+              }
+              energies.push_back(energy);
+
+              vector<vector3> coordinates;
+              vector<string> vs;
+              for (unsigned int a = 0; a < natoms; ++a) {
+                if (!getline(ifs, lineBuffer) )
+                  break;
+                tokenize(vs, lineBuffer);
+                if (vs.size() != 4)
+                  break;
+
+                double x, y, z;
+                x = atof(vs[1].c_str());
+                y = atof(vs[2].c_str());
+                z = atof(vs[3].c_str());
+                vector3 point(x, y, z);
+                coordinates.push_back(point);
+
+                if (createAtoms) {
+                  int atomicNum = OBElements::GetAtomicNum(vs[0].c_str());
+                  //set atomic number, or '0' if the atom type is not recognized
+                  if (atomicNum == 0) {
+                    // Sometimes people call this an XYZ file, but it's actually Unichem
+                    // i.e., the first column is the atomic number, not a symbol
+                    // so we'll try to convert this to an element number
+                    atomicNum = atoi(vs[0].c_str());
+                  }
+
+                  OBAtom* atom = pmol->NewAtom();
+                  if( !atom ) break;
+                  atom->SetAtomicNum( atomicNum );
+                  atom->SetVector( x, y, z );
+                } // end creating atoms
+
+              } // end reading this set of coords
+              conformers.push_back(coordinates);
+          } // end GEOM block
+
+        }
+
         if( lineBuffer.find( "[FREQ]" ) != string::npos ) {
           while( getline( ifs, lineBuffer ) )
             {
@@ -176,7 +265,7 @@ bool OBMoldenFormat::ReadMolecule( OBBase* pOb, OBConversion* pConv )
                 is >> atomName >> x >> y >> z;
                 OBAtom* atom = pmol->NewAtom();
                 if( !atom ) break;
-                atom->SetAtomicNum( etab.GetAtomicNum(atomName.c_str()));
+                atom->SetAtomicNum( OBElements::GetAtomicNum(atomName.c_str()));
                 // Vibrational equilibrium geometry is mandated to be
                 // in Bohr.
                 atom->SetVector( x * BOHR_TO_ANGSTROM,
@@ -187,17 +276,20 @@ bool OBMoldenFormat::ReadMolecule( OBBase* pOb, OBConversion* pConv )
          } // "[FR-COORD]"
         if( lineBuffer.find( "[FR-NORM-COORD]" ) != string::npos ) {
           getline( ifs, lineBuffer );
+          vector<string> vs;
           while( ifs && lineBuffer.find( "ibration") != string::npos )
             {
               vector<vector3> vib;
               getline( ifs, lineBuffer );
-              while( ifs && lineBuffer.find( "ibration") == string::npos )
+              tokenize(vs, lineBuffer);
+              while( ifs && vs.size() == 3)
                 {
                   istringstream is( lineBuffer );
                   double x, y, z;
                   is >> x >> y >> z;
                   vib.push_back( vector3( x, y, z ) );
                   getline( ifs, lineBuffer );
+                  tokenize(vs, lineBuffer);
                 }
               Lx.push_back( vib );
            } // while
@@ -224,6 +316,25 @@ bool OBMoldenFormat::ReadMolecule( OBBase* pOb, OBConversion* pConv )
       OBVibrationData* vd = new OBVibrationData;
       vd->SetData(Lx, Frequencies, Intensities);
       pmol->SetData(vd);
+    }
+
+    if (energies.size() > 0)
+      pmol->SetEnergies(energies);
+
+    if (conformers.size() > 0) {
+      for (unsigned int i = 0; i < conformers.size(); ++i) {
+        double *confCoord = new double [3*pmol->NumAtoms()];
+        vector<vector3> coordinates = conformers[i];
+        if (coordinates.size() != pmol->NumAtoms())
+          cerr << " Wrong number of coordinates! " << endl;
+        for (unsigned int a = 0; a < coordinates.size(); ++a) {
+          confCoord[3*a] = coordinates[a].x();
+          confCoord[3*a+1] = coordinates[a].y();
+          confCoord[3*a+2] = coordinates[a].z();
+        } // finished atoms
+        pmol->AddConformer(confCoord);
+      } // finished iteration through conformers
+      pmol->SetConformer(pmol->NumConformers());
     }
 
     if( !pConv->IsOption( "b", OBConversion::INOPTIONS ) ) pmol->ConnectTheDots();
@@ -256,7 +367,7 @@ bool OBMoldenFormat::WriteMolecule(OBBase* pOb, OBConversion* pConv)
     FOR_ATOMS_OF_MOL(atom, mol)
       {
         snprintf(buffer, BUFF_SIZE, "%2s%6d%3d%13.6f%13.6f%13.6f\n",
-                etab.GetSymbol(atom->GetAtomicNum()),
+                OBElements::GetSymbol(atom->GetAtomicNum()),
 		i++,
                 atom->GetAtomicNum(),
                 atom->GetX(),
@@ -285,7 +396,7 @@ bool OBMoldenFormat::WriteMolecule(OBBase* pOb, OBConversion* pConv)
       FOR_ATOMS_OF_MOL(atom, mol)
         {
           snprintf(buffer, BUFF_SIZE, "%2s%13.6f%13.6f%13.6f\n",
-                  etab.GetSymbol(atom->GetAtomicNum()),
+                  OBElements::GetSymbol(atom->GetAtomicNum()),
                   atom->GetX()*ANGSTROM_TO_BOHR,
                   atom->GetY()*ANGSTROM_TO_BOHR,
                   atom->GetZ()*ANGSTROM_TO_BOHR);

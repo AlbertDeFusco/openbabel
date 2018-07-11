@@ -127,21 +127,32 @@ namespace OpenBabel
   //! \brief Used to store arbitrary attribute/value relationsips of any type.
   // More detailed description in generic.cpp
   template <class ValueT>
-    class OBAPI OBPairTemplate : public OBGenericData
+    class OBPairTemplate : public OBGenericData // Note: no OBAPI should be used
   {
   protected:
     ValueT _value; //!< The data for this key/value pair
   public:
   OBPairTemplate():
     OBGenericData("PairData", OBGenericDataType::PairData) {};
+    virtual OBGenericData* Clone(OBBase* /*parent*/) const
+      {return new OBPairTemplate<ValueT>(*this);}
     void SetValue(const ValueT t)             { _value = t;     }
     virtual const ValueT &GetGenericValue() const    { return(_value); }
+    const ValueT &GetGenericValueDef(const ValueT &def_val) const
+    { 
+      if(this == NULL)
+	return def_val;
+      else	
+        return GetGenericValue(); 
+    }
   };
 
   //! Store arbitrary key/value integer data like OBPairData
   typedef OBPairTemplate<int>     OBPairInteger;
   //! Store arbitrary key/value floating point data like OBPairData
   typedef OBPairTemplate<double>  OBPairFloatingPoint;
+  //! Store arbitrary key/value boolean data like OBPairData
+  typedef OBPairTemplate<bool>    OBPairBool;
 
   //! \class OBSetData generic.h <openbabel/generic.h>
   //! \brief Used to store arbitrary attribute/set relationships.
@@ -232,17 +243,17 @@ namespace OpenBabel
  class OBAPI OBVirtualBond : public OBGenericData
   {
   protected:
-    int _bgn;
-    int _end;
-    int _ord;
+    unsigned int _bgn;
+    unsigned int _end;
+    unsigned int _ord;
     int _stereo;
   public:
     OBVirtualBond();
     virtual OBGenericData* Clone(OBBase* /*parent*/) const{return new OBVirtualBond(*this);}
-    OBVirtualBond(int,int,int,int stereo=0);
-    int GetBgn()    {      return(_bgn);    }
-    int GetEnd()    {      return(_end);    }
-    int GetOrder()  {      return(_ord);    }
+    OBVirtualBond(unsigned int, unsigned int, unsigned int,int stereo=0);
+    unsigned int GetBgn()    {      return(_bgn);    }
+    unsigned int GetEnd()    {      return(_end);    }
+    unsigned int GetOrder()  {      return(_ord);    }
     int GetStereo() {      return(_stereo); }
   };
 
@@ -962,11 +973,11 @@ namespace OpenBabel
 
     //! \brief Convenience function for common cases of closed-shell calculations -- pass the energies and symmetries
     //! This method will fill the OBOrbital objects for you
-    void LoadClosedShellOrbitals(std::vector<double> energies, std::vector<std::string> symmetries, int alphaHOMO);
+    void LoadClosedShellOrbitals(std::vector<double> energies, std::vector<std::string> symmetries, unsigned int alphaHOMO);
     //! \brief Convenience function to load alpha orbitals in an open-shell calculation
-    void LoadAlphaOrbitals(std::vector<double> energies, std::vector<std::string> symmetries, int alphaHOMO);
+    void LoadAlphaOrbitals(std::vector<double> energies, std::vector<std::string> symmetries, unsigned int alphaHOMO);
     //! \brief Convenience function to load beta orbitals in an open-shell calculation
-    void LoadBetaOrbitals(std::vector<double> energies, std::vector<std::string> symmetries, int betaHOMO);
+    void LoadBetaOrbitals(std::vector<double> energies, std::vector<std::string> symmetries, unsigned int betaHOMO);
 
   protected:
     std::vector<OBOrbital> _alphaOrbitals; //!< List of orbitals. In case of unrestricted calculations, this contains the alpha spin-orbitals
@@ -1090,6 +1101,109 @@ namespace OpenBabel
 
   protected:
     matrix3x3            _matrix; //!< 3x3 matrix to be stored
+  };
+
+  //! \class OBFreeGridPoint generic.h <openbabel/generic.h>
+  //! \brief Helper class for OBFreeGrid
+  //! Can hold a random coordinate and associated value.
+  class OBAPI OBFreeGridPoint
+  {
+  protected:
+    double _x,_y,_z,_V;
+    
+  public:
+    OBFreeGridPoint() {};
+    OBFreeGridPoint(double x,double y,double z,double V) { _x = x; _y = y; _z = z; _V = V; }
+    ~OBFreeGridPoint() {};
+    double GetX() { return _x; }
+    double GetY() { return _y; }
+    double GetZ() { return _z; }
+    double GetV() { return _V; }
+    void SetX(double x) { _x = x; }
+    void SetY(double y) { _y = y; }
+    void SetZ(double z) { _z = z; }
+    void SetV(double V) { _V = V; }
+  };
+  
+  //! A standard iterator over a vector of FreeGridPoints
+  typedef std::vector<OBFreeGridPoint*>::iterator OBFreeGridPointIterator;
+
+  //! \class OBFreeGrid generic.h <openbabel/generic.h>
+  //! \brief Handle double precision floating point data with coordinates not on a grid
+  //! Can hold array of random coordinates and associated values.
+  class OBAPI OBFreeGrid: public OBGenericData
+  {
+  protected:
+    std::vector<OBFreeGridPoint*> _points;  //!< coordinates with accompanying float values
+  public:
+
+    OBFreeGrid() 
+    {
+    }
+    
+    ~OBFreeGrid() 
+    {
+      //delete _points;
+    }
+
+    int NumPoints() 
+    { 
+      return (int)_points.size();
+    }
+    
+    void AddPoint(double x,double y,double z, double V) 
+    {
+      _points.push_back(new OpenBabel::OBFreeGridPoint(x,y,z,V));
+    }
+
+    OBFreeGridPointIterator BeginPoints() 
+    { 
+      return _points.begin(); 
+    }
+    
+    OBFreeGridPointIterator EndPoints() 
+    {
+      return _points.begin() + NumPoints(); 
+    }
+    
+    OBFreeGridPoint *BeginPoint(OBFreeGridPointIterator &i)
+    {
+      i = _points.begin();
+      return((i == _points.end()) ? (OBFreeGridPoint*)NULL : (OBFreeGridPoint*)*i);
+    }
+
+    OBFreeGridPoint *NextPoint(OBFreeGridPointIterator &i)
+    {
+      ++i;
+      return((i == _points.end()) ? (OBFreeGridPoint*)NULL : (OBFreeGridPoint*)*i);
+    }
+    
+    void Clear();
+
+  };
+  
+  class OBAPI OBPcharge: public OBGenericData
+  {
+  protected:
+    std::vector<double> _PartialCharge;
+  public:
+    OBPcharge(){};
+    ~OBPcharge(){};
+
+    int NumPartialCharges() 
+    { 
+      return _PartialCharge.size(); 
+    }
+    
+    void AddPartialCharge(std::vector<double> q)
+    {
+      _PartialCharge = q;
+    }
+
+    std::vector<double> GetPartialCharge()
+    {
+        return _PartialCharge;
+    }
   };
 
  //! A standard iterator over vectors of OBGenericData (e.g., inherited from OBBase)

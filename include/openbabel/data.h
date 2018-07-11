@@ -34,7 +34,6 @@ namespace OpenBabel
 
   class OBAtom;
   class OBMol;
-  class OBBitVec;
 
   /** \class OBGlobalDataBase data.h <openbabel/data.h>
       \brief Base data table class, handles reading data files
@@ -73,155 +72,114 @@ namespace OpenBabel
       virtual void ParseLine(const char*)          {}
     };
 
-  /** \class OBElement data.h <openbabel/data.h>
-      \brief Individual element data type
+  /** \class OBAtomHOF data.h <openbabel/data.h>
+      \brief helper class for OBAtomicHeatOfFormationTable
 
-      Stores a variety of data about an individual element.
-      Used mainly by OBElementTable.
+      Stores both theoretical and experimental corrections
+      needed to compute the Enthalpy of formation. In order to
+      use these you need to perform
+      Gaussian G2/G3/G4 or CBS-QB3 calculations.
   **/
-  class OBAPI OBElement
-    {
-      int _num;
-      char _symbol[4];
-      std::string _name;
-      double _Rcov,_Rvdw,_mass,_elNeg,_ARENeg,_ionize,_elAffinity;
-      double _red, _green, _blue;
-      int _maxbonds;
-    public:
-      //! \deprecated Not used. Instead, initialize element properties
-      OBElement()    {}
-      /** Constructor
-          @param num     Atomic number
-          @param sym     Elemental symbol (maximum 3 characters)
-          @param ARENeg  Allred-Rochow electronegativity
-          @param rcov    Covalent radius (in Angstrom)
-          @param rvdw    van der Waals radius (in Angstrom)
-          @param maxbo   Maximum bonding valence
-          @param mass    Atomic mass (in amu)
-          @param elNeg   Electronegativity (in Pauling units)
-          @param ionize  Ionization potential (in eV)
-          @param elAffin Electron affinity (in eV)
-          @param red     RGB value for a suggest visualization color (0 .. 1)
-          @param green   RGB value for a suggest visualization color (0 .. 1)
-          @param blue    RGB value for a suggest visualization color (0 .. 1)
-          @param name Full IUPAC name
-      **/
-      OBElement(int num, const char *sym, double ARENeg, double rcov,
-      		double rvdw, int maxbo, double mass, double elNeg, double ionize,
-                double elAffin, double red, double green, double blue,
-                std::string name) :
-        _num(num), _name(name), _Rcov(rcov), _Rvdw(rvdw), _mass(mass),
-        _elNeg(elNeg), _ARENeg(ARENeg), _ionize(ionize), _elAffinity(elAffin),
-        _red(red), _green(green), _blue(blue),
-        _maxbonds(maxbo)
-        {
-          strncpy(_symbol, sym, 4);
-        }
+  class OBAPI OBAtomHOF
+  {
+  private:
+      std::string _element,_method,_desc,_unit;
+    double _T,_value;
+    int _charge;
+    int _multiplicity;
 
-      //! \return the atomic number of this element
-      int GetAtomicNum()         {       return(_num);    }
-      //! \return the atomic symbol for this element
-      char *GetSymbol()          {       return(_symbol); }
-      //! \return the covalent radius of this element
-      double GetCovalentRad()    {       return(_Rcov);   }
-      //! \return the van der Waals radius of this element
-      double GetVdwRad()         {       return(_Rvdw);   }
-      //! \return the standard atomic mass for this element (in amu)
-      double GetMass()           {       return(_mass);   }
-      //! \return the maximum expected number of bonds to this element
-      int GetMaxBonds()          {       return(_maxbonds);}
-      //! \return the Pauling electronegativity for this element
-      double GetElectroNeg()     {       return(_elNeg);  }
-      //! \return the Allred-Rochow electronegativity for this element
-      double GetAllredRochowElectroNeg() { return(_ARENeg); }
-      //! \return the ionization potential (in eV) of this element
-      double GetIonization()     {       return(_ionize);  }
-      //! \return the electron affinity (in eV) of this element
-      double GetElectronAffinity(){      return(_elAffinity);  }
-      //! \return the name of this element (in English)
-      std::string GetName()      {       return(_name);    }
-      //! \return the red component of this element's default visualization color
-      double GetRed()            {       return(_red);     }
-      //! \return the green component of this element's default color
-      double GetGreen()          {       return(_green);   }
-      //! \return the blue component of this element's default color
-      double GetBlue()           {       return(_blue);    }
-    };
+  public:
+    /** \brief Initialize Heat of Formation for atom
+        
+     @param element The element string
+     @param charge  The formal charge of the particle (if an ion)
+     @param method  The method used for determining the value
+     @param desc    Description of the value
+     @param T       Temperature
+     @param value   The value of the property (energy)
+     @param multiplicity The multiplicity of the atomic system
+     @param unit    The (energy) unit
+    */
+    OBAtomHOF(std::string element,int charge,
+              std::string method,std::string desc,
+              double T,double value,int multiplicity,
+              std::string unit)
+      {
+        _element      = element;
+        _charge       = charge;
+        _method       = method;
+        _desc         = desc;
+        _T            = T;
+        _value        = value;
+        _multiplicity = multiplicity;
+        _unit         = unit;
+      }
 
-  // class introduction in data.cpp
-  class OBAPI OBElementTable : public OBGlobalDataBase
-    {
-      std::vector<OBElement*> _element;
+    /** \brief Destructor */
+    ~OBAtomHOF() {}
+    /** \brief Return the chemical element */
+    std::string Element() { return _element; }
+    /** \brief Return the formal charge */
+    int Charge()          { return _charge; }
+    /** \brief Return the method used for the measurement/calculation */
+    std::string Method()  { return _method; }
+    /** \brief Return specification of the measurement/calculation type */
+    std::string Desc()    { return _desc; }
+    /** \brief Return the temperature */
+    double T()            { return _T; }
+    /** \brief Return the (energy) value */
+    double Value()        { return _value; }
+    /** \brief Return the multiplicity */
+    int Multiplicity()    { return _multiplicity; }
+    /** \brief Return the (energy) unit */
+    std::string Unit()    { return _unit; }
+  };
+
+  /** \class OBAtomicHeatOfFormationTable data.h <openbabel/data.h>
+      \brief Atomic Heat of Formation Table
+
+      Contributions of atoms to Enthalpy of Formation calculations performed
+      in Gaussian, using the G2/G3/G4 or CBS-QB3 methods respectively.
+      The energies produced by Gaussian have to be corrected according to their
+      document on Thermochemistry with Gaussian. The data in the file
+      BABEL_DATA/atomization_energies.txt supplies this information based on
+      single atom calculations with Gaussian and the appropriate method and
+      experimental data from Curtiss et al., J. Chem. Phys. 106 (1997) 1063-1079.
+  */
+  class OBAPI OBAtomicHeatOfFormationTable : public OBGlobalDataBase
+  {
+    std::vector<OBAtomHOF> _atomhof;
 
     public:
+      /** \brief Constructor */
+      OBAtomicHeatOfFormationTable(void);
+      /** \brief Destructor */
+      ~OBAtomicHeatOfFormationTable() {}
 
-      OBElementTable(void);
-      ~OBElementTable();
+      //! \return the number of elements in the Atomic Heat Of Formation table
+      size_t GetSize() { return _atomhof.size(); }
 
-      void  ParseLine(const char*);
-
-      //! \return the number of elements in the periodic table
-      unsigned int		GetNumberOfElements();
-      //! \return the number of elements in the periodic table
-      size_t    GetSize() { return GetNumberOfElements(); }
-
-      //! \deprecated Does not properly handle 'D' or 'T' hydrogen isotopes
-      int   GetAtomicNum(const char *);
-      //! \return the atomic number matching the element symbol or IUPAC name
-      //! passed or 0 if not defined. For 'D' or 'T' hydrogen isotopes, will
-      //! return a value in the second argument
-      int   GetAtomicNum(const char *, int &iso);
-      //! Overloads GetAtomicNum(const char *, int &iso)
-      int   GetAtomicNum(std::string name, int &iso);
-      //! \return the element symbol matching the atomic number passed
-      const char *GetSymbol(int);
-      //! \return the van der Waals radius for this atomic number
-      double GetVdwRad(int);
-      //! \return the covalent radius for this atomic number
-      double GetCovalentRad(int);
-      //! \return the average atomic mass for this element.
-      //! For exact isotope masses, use OpenBabel::OBIsotopeTable
-      double GetMass(int);
-      //! \return a "corrected" bonding radius based on the hybridization.
-      //! Scales the covalent radius by 0.95 for sp2 and 0.90 for sp hybrids
-      double CorrectedBondRad(int,int = 3); // atomic #, hybridization
-      //! \return a "corrected" vdW radius based on the hybridization.
-      //! Scales the van der Waals radius by 0.95 for sp2 and 0.90 for sp hybrids
-      double CorrectedVdwRad(int,int = 3); // atomic #, hybridization
-      //! \return the maximum expected number of bonds to this element
-      int	GetMaxBonds(int);
-      //! \return the Pauling electronegativity for this element
-      double GetElectroNeg(int);
-      //! \return the Allred-Rochow electronegativity for this element
-      double GetAllredRochowElectroNeg(int);
-      //! \return the ionization potential (in eV) for this element
-      double GetIonization(int);
-      //! \return the electron affinity (in eV) for this element
-      double GetElectronAffinity(int);
-      //! \return a vector with red, green, blue color values for this element
-      std::vector<double> GetRGB(int);
-      //! \return the name of this element
-      std::string GetName(int);
-    };
-
-  // class introduction in data.cpp
-  class OBAPI OBIsotopeTable : public OBGlobalDataBase
-    {
-      std::vector<std::vector<std::pair <unsigned int, double> > > _isotopes;
-
-    public:
-
-      OBIsotopeTable(void);
-      ~OBIsotopeTable()    {}
-
-      //! \return the number of elements in the isotope table
-      size_t GetSize() { return _isotopes.size(); }
-
+      /** \brief Read one line in the file and parse it 
+          @param Unnamed the line to be parsed
+      */
       void	ParseLine(const char*);
-      //! \return the exact masss of the isotope
-      //!   (or by default (i.e. "isotope 0") the most abundant isotope)
-      double	GetExactMass(const unsigned int atomicNum,
-                           const unsigned int isotope = 0);
+      /** \brief Extract heat of formation and entropy for an atom
+       @param elem         The chemical element we're looking for
+       @param charge       At this formal charge
+       @param method       The method used for computing/measuring
+       @param T            The temperature
+       @param dhof0        The output energy at 0K
+       @param dhof1        The output energy at T
+       @param S0T          The entropy at T (it is 0 at 0K)
+       \return 1 if the contribution to the Heat of Formation for this atom
+       is known at temperature T. If 1 the values
+       including all corrections are returned in the dhof variable.
+      */
+      int	GetHeatOfFormation(std::string elem, 
+                               int charge,
+                               std::string method,
+                               double T, double *dhof0,
+                               double *dhofT,double *S0T);
     };
 
   // class introduction in data.cpp
@@ -301,12 +259,11 @@ namespace OpenBabel
       bool LookupType(const std::string &,std::string&,int&);
       //! Assign bond orders, atom types and residues for the supplied OBMol
       //! based on the residue information assigned to atoms
-      //! \deprecated second OBBitVec argument is ignored
-      bool AssignBonds(OBMol &,OBBitVec &);
+      bool AssignBonds(OBMol &);
     };
 
 } // end namespace OpenBabel
-
+  
 #endif //DATA_H
 
 //! \file data.h

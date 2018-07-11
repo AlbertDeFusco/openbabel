@@ -59,6 +59,8 @@ public:
   {
     //It's really text, not a molecule.
     OBText* pText = dynamic_cast<OBText*>(pOb);
+    if (!pText)
+      return false;
     string fileText(istreambuf_iterator<char>(*pConv->GetInStream()), istreambuf_iterator<char>());
     pText->SetText(fileText);
     return !fileText.empty();
@@ -79,7 +81,7 @@ public:
       ostream* ofs = pConv->GetOutStream();
       if(ofs)
         *ofs << pText->GetText();
-      return *ofs;
+      return (bool)*ofs;
     }
   }
 };

@@ -3,11 +3,14 @@
 # Compensate for the fact that Ruby will try to build universal
 # binaries on OS X by default
 require 'rbconfig'
-if Config::CONFIG["arch"] =~ /universal-darwin/
+if RbConfig::CONFIG["arch"] =~ /universal-darwin/
   ENV['ARCHFLAGS'] = case `uname -smr`.chomp
     when "i386" then '-arch i386'
     when "ppc"  then '-arch ppc'
   end
+  isDarwin = true
+else
+  isDarwin = false
 end
 
 require 'mkmf'
@@ -36,9 +39,15 @@ if RUBY_VERSION < "1.9"
 end
 
 if have_library('openbabel')
-  with_ldflags("#$LDFLAGS -dynamic -flat_namespace") do #Enables cc to handle linking better.
-  create_makefile('openbabel')
-end
+  if isDarwin
+    with_ldflags("#$LDFLAGS -dynamic --flat-namespace") do #Enables cc to handle linking better.
+    create_makefile('openbabel')
+    end
+  else
+    with_ldflags("#$LDFLAGS -dynamic") do #Enables cc to handle linking better.
+    create_makefile('openbabel')
+    end
+  end
 else
   puts "Install Open Babel first. If you've already compiled and installed Open Babel, you may need to run ldconfig."
 end

@@ -81,7 +81,7 @@ namespace OpenBabel {
 
     char buffer[BUFF_SIZE], tag[BUFF_SIZE];
     double x,y,z;
-    double alat = 0;
+    double alat = 1.0;
     vector<string> vs;
     matrix3x3 ortho;
     int atomicNum;
@@ -93,19 +93,32 @@ namespace OpenBabel {
 
     while (ifs.getline(buffer,BUFF_SIZE)) {
 
+      // Older version of pwscf may use this for alat
       if (strstr(buffer, "lattice parameter (a_0)")) {
         tokenize(vs, buffer);
         alat = atof(vs.at(4).c_str());
       }
 
+      // Newer versions will use this for alat instead
+      if (strstr(buffer, "lattice parameter (alat)")) {
+        tokenize(vs, buffer);
+        alat = atof(vs.at(4).c_str());
+      }
+
       // Unit cell info
-      if (strstr(buffer, "CELL_PARAMETERS")) {
+      // Newer versions will also say "CELL_PARAMETERS" to complain that no
+      // units were specified
+      if (strstr(buffer, "CELL_PARAMETERS") &&
+          !strstr(buffer, "no units specified in CELL_PARAMETERS card")) {
         // Discover units
         double conv = 1.0;
         tokenize(vs, buffer);
 
         if (strstr(vs[1].c_str(), "alat")) {
           conv = alat * BOHR_TO_ANGSTROM;
+        }
+        else if (strstr(vs[1].c_str(), "bohr")) {
+          conv = BOHR_TO_ANGSTROM;
         }
         // Add others if needed
 
@@ -138,7 +151,8 @@ namespace OpenBabel {
       }
 
       // Unit cell info (for non-variable cell calcs)
-      if (strstr(buffer, "crystal axes: (cart. coord. in units of a_0)")) {
+      if (strstr(buffer, "crystal axes: (cart. coord. in units of a_0)") ||
+          strstr(buffer, "crystal axes: (cart. coord. in units of alat)")) {
         double conv = alat * BOHR_TO_ANGSTROM;
         double v11, v12, v13,
           v21, v22, v23,
@@ -196,7 +210,7 @@ namespace OpenBabel {
         tokenize(vs, buffer);
         int size = vs.size();
         while (size == 4) {
-          atomicNum = etab.GetAtomicNum(vs[0].c_str());
+          atomicNum = OBElements::GetAtomicNum(vs[0].c_str());
           x = atof((char*)vs[1].c_str());
           y = atof((char*)vs[2].c_str());
           z = atof((char*)vs[3].c_str());

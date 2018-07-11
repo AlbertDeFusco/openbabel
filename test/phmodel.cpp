@@ -29,8 +29,19 @@ GNU General Public License for more details.
 using namespace std;
 using namespace OpenBabel;
 
-int main (int argc, char **argv)
+int phmodel(int argc, char* argv[])
 {
+  int defaultchoice = 1;
+  
+  int choice = defaultchoice;
+
+  if (argc > 1) {
+    if(sscanf(argv[1], "%d", &choice) != 1) {
+      printf("Couldn't parse that input as a number\n");
+      return -1;
+    }
+  }
+
   // Define location of file formats for testing
   #ifdef FORMATDIR
     char env[BUFF_SIZE];
@@ -149,7 +160,7 @@ int main (int argc, char **argv)
   // Histidine (sidechain nH+ pKa = 6.08)
   //
   cout << "# His" << endl;
-  conv.ReadString(&mol, "NC(Cc1ncnc1)C(O)=O");
+  conv.ReadString(&mol, "NC(Cc1nc[nH]c1)C(O)=O");
   mol.SetAutomaticFormalCharge(true);
   mol.AddHydrogens(false, true, 1.0); // NH3+ COOH nH+
   cout << "#pH = 1.0 : ";
@@ -160,7 +171,7 @@ int main (int argc, char **argv)
   else
     cout << "not ok " << ++test << "\n";
   
-  conv.ReadString(&mol, "NC(Cc1ncnc1)C(O)=O");
+  conv.ReadString(&mol, "NC(Cc1nc[nH]c1)C(O)=O");
   mol.SetAutomaticFormalCharge(true);
   mol.AddHydrogens(false, true, 5.0); // NH3+ COO- nH+
   cout << "#pH = 5.0 : ";
@@ -171,7 +182,7 @@ int main (int argc, char **argv)
   else
     cout << "not ok " << ++test << "\n";
 
-  conv.ReadString(&mol, "NC(Cc1ncnc1)C(O)=O");
+  conv.ReadString(&mol, "NC(Cc1nc[nH]c1)C(O)=O");
   mol.SetAutomaticFormalCharge(true);
   mol.AddHydrogens(false, true, 7.4); // NH3+ COO- n:
   cout << "#pH = 7.4 : ";
@@ -182,7 +193,7 @@ int main (int argc, char **argv)
   else
     cout << "not ok " << ++test << "\n";
 
-  conv.ReadString(&mol, "NC(Cc1ncnc1)C(O)=O");
+  conv.ReadString(&mol, "NC(Cc1nc[nH]c1)C(O)=O");
   mol.SetAutomaticFormalCharge(true);
   mol.AddHydrogens(false, true, 13.0); // NH2 COO- n:
   cout << "#pH = 13.0 : ";
@@ -379,5 +390,5 @@ int main (int argc, char **argv)
   cout << "1.." << test << "\n";
 
 //cout << mol.NumAtoms() << endl;  
-
+  return 0;
 }

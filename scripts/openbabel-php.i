@@ -41,7 +41,6 @@
 #include <openbabel/data.h>
 #include <openbabel/parsmart.h>
 #include <openbabel/alias.h>
-#include <openbabel/atomclass.h>
 
 #include <openbabel/kinetics.h>
 #include <openbabel/rotor.h>
@@ -89,7 +88,7 @@ namespace std {
 %feature("ignore") vector< vector<T> >::rend;
 %feature("ignore") vector< vector<T> >::reserve;
 %feature("ignore") vector< vector<T> >::resize;
-%feature("ignore") vector< vector<T> >::size;
+//%feature("ignore") vector< vector<T> >::size;
 %feature("ignore") vector< vector<T> >::swap;
 %template(vectorv ## name) vector< vector<T> >;
 %enddef
@@ -114,7 +113,7 @@ namespace std {
 %feature("ignore") vector<T>::rend;
 %feature("ignore") vector<T>::reserve;
 %feature("ignore") vector<T>::resize;
-%feature("ignore") vector<T>::size;
+//%feature("ignore") vector<T>::size;
 %feature("ignore") vector<T>::swap;
 %template(vector ## vectorname) vector<T>;
 %enddef
@@ -139,7 +138,7 @@ namespace std {
 %feature("ignore") vector< pair<T1, T2> >::rend;
 %feature("ignore") vector< pair<T1, T2> >::reserve;
 %feature("ignore") vector< pair<T1, T2> >::resize;
-%feature("ignore") vector< pair<T1, T2> >::size;
+//%feature("ignore") vector< pair<T1, T2> >::size;
 %feature("ignore") vector< pair<T1, T2> >::swap;
 %template(vpair ## vectorname) vector< pair<T1, T2> >;
 %enddef
@@ -177,7 +176,6 @@ OpenBabel::AliasData *toAliasData(OpenBabel::OBGenericData *data) {
 }
 %}
 CAST_GENERICDATA_TO(AngleData)
-CAST_GENERICDATA_TO(AtomClassData)
 CAST_GENERICDATA_TO(ChiralData)
 CAST_GENERICDATA_TO(CommentData)
 CAST_GENERICDATA_TO(ConformerData)
@@ -199,6 +197,7 @@ CAST_GENERICDATA_TO(VectorData)
 CAST_GENERICDATA_TO(VibrationData)
 CAST_GENERICDATA_TO(VirtualBond)
 
+%rename(add)  *::operator+=;
 %ignore *::operator=;
 %ignore *::operator[];
 
@@ -212,8 +211,10 @@ CAST_GENERICDATA_TO(VirtualBond)
 %include <openbabel/math/matrix3x3.h>
 %include <openbabel/math/transform3d.h>
 %include <openbabel/math/spacegroup.h>
+%warnfilter(503) OpenBabel::OBBitVec; // Not wrapping any of the overloaded operators
+%include <openbabel/bitvec.h>
 
-# CloneData should be used instead of the following method
+// CloneData should be used instead of the following method
 %ignore OpenBabel::OBBase::SetData;
 %include <openbabel/base.h>
 
@@ -257,13 +258,12 @@ IGNORE_ITER(OBMol, Residue)
 %include <openbabel/ring.h>
 %include <openbabel/parsmart.h>
 %include <openbabel/alias.h>
-%include <openbabel/atomclass.h>
 %ignore OpenBabel::FptIndex;
 %include <openbabel/fingerprint.h>
 %ignore OpenBabel::OBDescriptor::LessThan;
 %include <openbabel/descriptor.h>
 
-# Ignore shadowed methods
+// Ignore shadowed methods
 %ignore OpenBabel::OBForceField::VectorSubtract(const double *const, const double *const, double *);
 %ignore OpenBabel::OBForceField::VectorMultiply(const double *const, const double, double *);
 %include <openbabel/forcefield.h>
@@ -278,9 +278,7 @@ IGNORE_ITER(OBMol, Residue)
 %include <openbabel/canon.h>
 %include <openbabel/stereo/stereo.h>
 
-%warnfilter(503) OpenBabel::OBBitVec; // Not wrapping any of the overloaded operators
-%include <openbabel/bitvec.h>
-# Ignore shadowed method
+// Ignore shadowed method
 %ignore OpenBabel::OBRotor::GetRotAtoms() const;
 %include <openbabel/rotor.h>
 %ignore OpenBabel::Swab;
@@ -292,13 +290,13 @@ IGNORE_ITER(OBMol, Residue)
 %include <openbabel/math/align.h>
 #endif
 
-# The following %ignores avoid warning messages due to shadowed classes.
-# This does not imply a loss of functionality as (in this case)
-# the shadowed class is identical (from the point of view of SWIG) to
-# the shadowing class.
-# This is because C++ references (&) are transformed by SWIG back into
-# pointers, so that OBAtomIter(OBMol &) would be treated the same as
-# OBAtomIter(OBMol *).
+// The following %ignores avoid warning messages due to shadowed classes.
+// This does not imply a loss of functionality as (in this case)
+// the shadowed class is identical (from the point of view of SWIG) to
+// the shadowing class.
+// This is because C++ references (&) are transformed by SWIG back into
+// pointers, so that OBAtomIter(OBMol &) would be treated the same as
+// OBAtomIter(OBMol *).
 
 %ignore OBAtomAtomIter(OBAtom &);
 %ignore OBAtomBondIter(OBAtom &);
@@ -319,7 +317,7 @@ IGNORE_ITER(OBMol, Residue)
 
 %include <openbabel/obiter.h>
 
-# Functions to set the log file to std::cout and std::cerr
+// Functions to set the log file to std::cout and std::cerr
        
 %ignore OBForceField::SetLogFile(std::ostream *pos);
 %extend OpenBabel::OBForceField {

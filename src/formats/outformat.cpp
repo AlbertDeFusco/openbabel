@@ -22,7 +22,8 @@ namespace OpenBabel
 {
 
   // The ".out" format:
-  // Detect GAMESS, GAMESS-UK, Q-Chem, PWSCF, Gaussian, or MOPAC output files
+  // Detect GAMESS, GAMESS-UK, Q-Chem, PWSCF, Gaussian,  or MOPAC output files
+  // also detect ORCA output files now     --- added 14.03.2014 by D.Lenk
   class OutputFormat : public OBMoleculeFormat
   {
   public:
@@ -41,7 +42,7 @@ namespace OpenBabel
         "Generic Output file format\n"
         "Automatically detect and read computational chemistry output files\n\n"
         "This format can be used to read ADF, Gaussian, GAMESS, PWSCF, Q-Chem,\n"
-        "MOPAC, etc. output files by automatically detecting the file type.\n\n"
+        "MOPAC, ORCA etc. output files by automatically detecting the file type.\n\n"
         "Read Options e.g. -as\n"
         " s  Output single bonds only\n"
         " b  Disable bonding entirely\n\n";
@@ -112,7 +113,19 @@ namespace OpenBabel
         break;
       } else if (strstr(buffer,"Amsterdam Density Functional") != NULL) {
         // ADF output
-        formatName = "adfout";
+        // Determine the kind of ADF output
+        while (ifs.getline(buffer, BUFF_SIZE)) {
+          if (strstr(buffer, "|     A D F     |") != NULL) {
+            formatName = "adfout";
+            break;
+          } else if (strstr(buffer, "|     B A N D     |") != NULL) {
+            formatName = "adfband";
+            break;
+          } else if (strstr(buffer, "|     D F T B     |") != NULL) {
+            formatName = "adfdftb";
+            break;
+          }
+        }
         break;
       } else if (strstr(buffer,"Northwest Computational Chemistry") != NULL) {
         // NWChem output
@@ -144,6 +157,14 @@ namespace OpenBabel
         // CRYSTAL09
         formatName = "c09out";
         break;
+      } else if (strstr(buffer, "* O   R   C   A *") != NULL) {
+        // ORCA
+        formatName = "orca";
+        break;
+      } else if (strstr(buffer, "WELCOME TO SIESTA") != NULL) {
+        // SIESTA
+        formatName = "siesta";
+        break;
       }
     }
 
@@ -153,6 +174,7 @@ namespace OpenBabel
 
     if (pFormat) {
       ifs.seekg (0, ios::beg); // reset the stream to the beginning
+      ifs.clear();
       bool success = pFormat->ReadMolecule(pOb, pConv);
 
       // Tag the molecule with the format (e.g., if a program wants to know the kind of "out" or "log" file)

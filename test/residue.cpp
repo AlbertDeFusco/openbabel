@@ -2,14 +2,14 @@
 residue.cpp - Unit tests for Open Babel OBResidue class
 
 Copyright (C) 2005-2006 Geoffrey R. Hutchison
- 
+
 This file is part of the Open Babel project.
 For more information, see <http://openbabel.org/>
 
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
 the Free Software Foundation version 2 of the License.
- 
+
 This program is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
 MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
@@ -42,10 +42,19 @@ void CheckValidDipeptide(OBConversion &conv,
                          const string &test,
                          unsigned int testCount);
 
-int main(int argc,char *argv[])
+int residue(int argc, char* argv[])
 {
-  // turn off slow sync with C-style output (we don't use it anyway).
-  std::ios::sync_with_stdio(false);
+  int defaultchoice = 1;
+
+  int choice = defaultchoice;
+
+  if (argc > 1) {
+    if(sscanf(argv[1], "%d", &choice) != 1) {
+      printf("Couldn't parse that input as a number\n");
+      return -1;
+    }
+  }
+
 
   // Define location of file formats for testing
   #ifdef FORMATDIR
@@ -54,12 +63,6 @@ int main(int argc,char *argv[])
     putenv(env);
   #endif
 
-  if (argc != 1)
-    {
-      cout << "Usage: residue" << endl;
-      cout << " Unit tests for OBResidue " << endl;
-      return(-1);
-    }
 
   cout << "# Unit tests for OBResidue \n";
 
@@ -76,7 +79,7 @@ int main(int argc,char *argv[])
   OBConversion conv;
   OBMol mol;
   OBFormat *inFormat = conv.FindFormat("SMI");
-  
+
   conv.SetInFormat(inFormat);
   conv.ReadString(&mol, loopTest1);
   chainsparser.PerceiveChains(mol);
@@ -152,7 +155,7 @@ int main(int argc,char *argv[])
   CheckValidDipeptide(conv, ala_val, ++testCount);
   static const string cys_leu("NC(CS)C(=O)NC(CC(C)C)C(=O)O");
   CheckValidDipeptide(conv, cys_leu, ++testCount);
- 
+
   // the number of tests for "prove"
   cout << "1.." << testCount << "\n";
 
@@ -190,13 +193,13 @@ void CheckInvalidResidue(OBConversion &conv,
                          unsigned int testCount)
 {
   OBMol mol;
-  
+
   mol.Clear();
   conv.ReadString(&mol, test);
   chainsparser.PerceiveChains(mol);
   if (mol.NumResidues() != 0) {
     OBResidue *res = mol.GetResidue(0);
-    if (res->GetName() == "LIG") { // ligand, not residue
+    if (res->GetName() == "LIG" || res->GetName() == "UNL" ) { // ligand, not residue
       cout << "ok " << testCount << " # found ligand, not residue "
            << test << '\n';
     } else {

@@ -71,7 +71,7 @@ namespace OpenBabel
     //Define some references so we can use the old parameter names
     istream &ifs = *pConv->GetInStream();
     OBMol &mol = *pmol;
-    const char* title = pConv->GetInFilename().c_str();
+    const char* title = pConv->GetTitle();
 
     int i;
     int natoms = 0, nbonds = 0;
@@ -140,9 +140,15 @@ namespace OpenBabel
       }
 
     // clean out remaining blank lines
-    while(ifs.peek() != EOF && ifs.good() &&
-          (ifs.peek() == '\n' || ifs.peek() == '\r'))
+    std::streampos ipos;
+    do
+    {
+      ipos = ifs.tellg();
       ifs.getline(buffer,BUFF_SIZE);
+    }
+    while(strlen(buffer) == 0 && !ifs.eof() );
+    ifs.seekg(ipos);
+
 
     mol.EndModify();
     mol.SetTitle(title);

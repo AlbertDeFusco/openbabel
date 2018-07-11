@@ -1,30 +1,27 @@
-# Please ensure that any changes remain compliant with 2.4.8.
+# Please ensure that any changes remain compliant with 2.8.10.
 if(NOT EMBED_OPENBABEL)
-  cmake_minimum_required(VERSION 2.4.8)
+  cmake_minimum_required(VERSION 2.8.10)
 endif()
 
 project(openbabel)
 set(CMAKE_MODULE_PATH ${openbabel_SOURCE_DIR}/cmake/modules)
 
-# Allow loose loop constructs, i.e. no matching in if/else/endif or loops.
-# Note that this is true by default in CMake 2.6.0, but we currently only
-# require CMake 2.4.8 - remove this when the CMake requirement is bumped.
-set(CMAKE_ALLOW_LOOSE_LOOP_CONSTRUCTS 1)
-
 if(COMMAND cmake_policy)
   cmake_policy(SET CMP0003 NEW)
   cmake_policy(SET CMP0005 OLD) # add_definitions need updating to set to NEW
+  if(POLICY CMP0042)
+    cmake_policy(SET CMP0042 OLD)
+  endif()
 endif()
 
 include (CheckCXXCompilerFlag)
-include (MacroEnsureVersion)
 
 # Version numbering - should be bumped for each release
 # Note that for "beta" releases, we should start at x.90.0 -- we've
 # had too many 1.100.1 releases. :-)
 set(BABEL_MAJ_VER   2)
-set(BABEL_MIN_VER   3)
-set(BABEL_PATCH_VER 2)
+set(BABEL_MIN_VER   4)
+set(BABEL_PATCH_VER 90)
 
 # This should be phased out in preference for just using the target name
 set(BABEL_LIBRARY openbabel)
@@ -35,7 +32,9 @@ if(EMBED_OPENBABEL)
 else()
   set(BABEL_VERSION  "${BABEL_MAJ_VER}.${BABEL_MIN_VER}.${BABEL_PATCH_VER}")
 endif()
-set(BABEL_DATADIR  "${CMAKE_INSTALL_PREFIX}/share/openbabel")
+set(BABEL_DATAROOTDIR "${CMAKE_INSTALL_PREFIX}/share"
+    CACHE PATH "Install dir for arch independent data")
+set(BABEL_DATADIR  "${BABEL_DATAROOTDIR}/openbabel")
 
 option(ENABLE_VERSIONED_FORMATS
   "Enable versioning of the format plugin directory" ON)
@@ -70,7 +69,9 @@ else() # Windows - bin dir = lib dir to load libraries
     endif(ENABLE_VERSIONED_FORMATS)
   endif()
 endif()
-set(OB_INCLUDE_DIRS "include/openbabel-2.0")
+if(NOT DEFINED OB_INCLUDE_DIRS)
+  set(OB_INCLUDE_DIRS "include/openbabel-2.0")
+endif()
 set(OB_EXPORTS_FILE "${openbabel_BINARY_DIR}/OpenBabel2_EXPORTS.cmake")
 # Ensure a fresh file is made each time CMake is run
 file(REMOVE "${OB_EXPORTS_FILE}")
@@ -93,6 +94,13 @@ endif()
 mark_as_advanced(CMAKE_LIBRARY_OUTPUT_DIRECTORY
   CMAKE_RUNTIME_OUTPUT_DIRECTORY)
 
+#GLIBC_2.4
+option(GLIBC_24_COMPATIBLE "Build project compatible with GLIBC 2.4" OFF)
+if(GLIBC_24_COMPATIBLE AND UNIX)
+  set(WRAP_MEMCPY_SRC memcpy.c)
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wl,--wrap=memcpy")
+endif()
+
 option(BUILD_SHARED "enable shared build support" ON)
 option(BUILD_MIXED "enable linux relocatable binaries support" OFF)
 option(WITH_STATIC_INCHI "enable static inchi and related plugins" OFF)
@@ -102,6 +110,7 @@ if(BUILD_SHARED)
   set(BUILD_TYPE SHARED)
   set(PLUGIN_TYPE MODULE)
   add_definitions(-DUSING_DYNAMIC_LIBS)
+  set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 else()
   set(BUILD_TYPE STATIC)
   set(PLUGIN_TYPE STATIC)
@@ -116,8 +125,10 @@ else()
   if(MSVC)
     # set cl flags for static compiling
     set(CMAKE_CXX_FLAGS_DEBUG "/MTd")
+    set(CMAKE_C_FLAGS_DEBUG "/MTd")
     set(CMAKE_EXE_LINKER_FLAGS_DEBUG "/INCREMENTAL:NO /NODEFAULTLIB:MSVCRT")
     set(CMAKE_CXX_FLAGS_RELEASE	"/MT /O2 /Ob2 /D NDEBUG")
+    set(CMAKE_C_FLAGS_RELEASE	"/MT /O2 /Ob2 /D NDEBUG")
     set(CMAKE_EXE_LINKER_FLAGS_RELEASE "/INCREMENTAL:NO /NODEFAULTLIB:MSVCRT")
     # note: static libraries are specified when running cmake
   else()
@@ -136,7 +147,7 @@ if(OPENBABEL_USE_SYSTEM_INCHI)
   endif()
 else()
   message(STATUS "Using included inchi library.")
-  set(INCHI_LIBRARIES inchi)
+  set(INCHI_LIBRARY inchi)
 endif()
 
 if(WIN32)
@@ -181,12 +192,13 @@ if(MSVC)
     "Should Windows Open Babel builds use prebuilt binaries?" ON)
 	# dlhandler_win32.cpp assumes multibyte character set
 	remove_definitions(-DUNICODE -D_UNICODE)
+  include_directories(${openbabel_SOURCE_DIR}/windows-msvc/include)
 endif()
 
 if(MSVC AND OB_USE_PREBUILT_BINARIES)
-  include_directories(${openbabel_SOURCE_DIR}/windows-vc2008/include)
+  include_directories(${XDR_INCLUDE_DIR})
   # The following line is required for check_include_file(rpc/xdr.h ...) below
-  set(CMAKE_REQUIRED_INCLUDES ${openbabel_SOURCE_DIR}/windows-vc2008/include)
+  set(CMAKE_REQUIRED_INCLUDES ${XDR_INCLUDE_DIR})
   # Force OPENBABEL_USE_SYSTEM_INCHI to ON, as this should be using the binary
   set(OPENBABEL_USE_SYSTEM_INCHI ON CACHE BOOL
     "Forced to ON for prebuilt binaries" FORCE)
@@ -221,16 +233,21 @@ check_type_size(clock_t CLOCK_T)
 
 # Get the GCC version - from KDE4 cmake files
 if(CMAKE_COMPILER_IS_GNUCXX)
-  exec_program(${CMAKE_C_COMPILER} ARGS --version OUTPUT_VARIABLE _gcc_version_info)
-  string(REGEX MATCH "[345]\\.[0-9]\\.[0-9]" _gcc_version "${_gcc_version_info}")
-  # gcc on mac just reports: "gcc (GCC) 3.3 20030304 ..." without the
-  # patch level, handle this here:
-  if (NOT _gcc_version)
-    string (REGEX REPLACE ".*\\(GCC\\).* ([34]\\.[0-9]) .*" "\\1.0" _gcc_version "${_gcc_version_info}")
-  endif ()
-  macro_ensure_version("4.0.0" "${_gcc_version}" GCC_IS_NEWER_THAN_4_0)
-  macro_ensure_version("4.1.0" "${_gcc_version}" GCC_IS_NEWER_THAN_4_1)
-  macro_ensure_version("4.2.0" "${_gcc_version}" GCC_IS_NEWER_THAN_4_2)
+  if(NOT(${CMAKE_CXX_COMPILER_VERSION} VERSION_LESS 4.0.0))
+    set(GCC_IS_NEWER_THAN_4_0 TRUE)
+  else()
+    set(GCC_IS_NEWER_THAN_4_0 FALSE)
+  endif()
+  if(NOT(${CMAKE_CXX_COMPILER_VERSION} VERSION_LESS 4.1.0))
+    set(GCC_IS_NEWER_THAN_4_1 TRUE)
+  else()
+    set(GCC_IS_NEWER_THAN_4_1 FALSE)
+  endif()
+  if(NOT(${CMAKE_CXX_COMPILER_VERSION} VERSION_LESS 4.2.0))
+    set(GCC_IS_NEWER_THAN_4_2 TRUE)
+  else()
+    set(GCC_IS_NEWER_THAN_4_2 FALSE)
+  endif()
 endif()
 
 if(UNIX)
@@ -252,7 +269,8 @@ if(NOT MSVC)
     }
    " SCANDIR_NEEDS_CONST)
 
-  set(OB_MODULE_PATH "${CMAKE_INSTALL_PREFIX}/${OB_PLUGIN_INSTALL_DIR}")
+  set(OB_MODULE_PATH "${CMAKE_INSTALL_PREFIX}/${OB_PLUGIN_INSTALL_DIR}"
+      CACHE PATH "Set to system install for bindings only build")
   add_definitions(-DOB_MODULE_PATH="\\"${OB_MODULE_PATH}\\"")
 
   # Add some visibility support when using GCC
@@ -292,26 +310,45 @@ if(MINGW)
   set (CMAKE_EXE_LINKER_FLAGS "-Wl,--enable-auto-import ${CMAKE_EXE_LINKER_FLAGS}")
 endif()
 
-if(CMAKE_COMPILER_IS_GNUCXX)
-  if(NOT GCC_IS_NEWER_THAN_4_0) # GCC 3.x
-    find_package(Boost)
-    if(Boost_FOUND)
-      include_directories(${Boost_INCLUDE_DIRS} ${Boost_INCLUDE_DIR})
-      add_definitions(-DUSE_BOOST -DHAVE_SHARED_POINTER)
-      set(SHARED_POINTER true)
-    else()
-      message(FATAL_ERROR "Boost is required to compile OpenBabel with GCC 3.x")
-    endif()
-  else()
-    add_definitions(-DHAVE_SHARED_POINTER)
+message(STATUS "Checking available shared pointer...")
+include(CheckCXXSourceCompiles)
+check_cxx_source_compiles("#include <memory>
+                           int main(){ std::shared_ptr<int> p; return 0; }"
+                           HAVE_STD_SHARED_PTR)
+check_cxx_source_compiles("#include <memory>
+                           int main(){ std::tr1::shared_ptr<int> p; return 0; }"
+                           HAVE_STD_TR1_SHARED_PTR)
+check_cxx_source_compiles("#include <tr1/memory>
+                           int main(){ std::tr1::shared_ptr<int> p; return 0; }"
+                           HAVE_STD_TR1_SHARED_PTR_IN_TR1_HEADER)
+if(HAVE_STD_SHARED_PTR)
+  set(OB_SHARED_PTR_IMPLEMENTATION "std::shared_ptr")
+  set(OB_SHARED_PTR_HEADER "memory")
+  set(SHARED_POINTER true)
+  add_definitions(-DHAVE_SHARED_POINTER)
+elseif(HAVE_STD_TR1_SHARED_PTR)
+  set(OB_SHARED_PTR_IMPLEMENTATION "std::tr1::shared_ptr")
+  set(OB_SHARED_PTR_HEADER "memory")
+  set(SHARED_POINTER true)
+  add_definitions(-DHAVE_SHARED_POINTER)
+elseif(HAVE_STD_TR1_SHARED_PTR_IN_TR1_HEADER)
+  set(OB_SHARED_PTR_IMPLEMENTATION "std::tr1::shared_ptr")
+  set(OB_SHARED_PTR_HEADER "tr1/memory")
+  set(SHARED_POINTER true)
+  add_definitions(-DHAVE_SHARED_POINTER)
+else()
+  find_package(Boost)
+  if(Boost_FOUND)
+    include_directories(${Boost_INCLUDE_DIRS} ${Boost_INCLUDE_DIR})
+    add_definitions(-DUSE_BOOST -DHAVE_SHARED_POINTER)
     set(SHARED_POINTER true)
+  else()
+    message(FATAL_ERROR "Boost is required to compile OpenBabel with GCC 3.x")
   endif()
+  set(OB_SHARED_PTR_IMPLEMENTATION "boost::shared_ptr")
+  set(OB_SHARED_PTR_HEADER "boost/memory")
 endif()
-
-if (${CMAKE_CXX_COMPILER_ID} MATCHES Clang)
-   set(SHARED_POINTER true)
-   add_definitions(-DHAVE_SHARED_POINTER)
-endif()
+message(STATUS "Use ${OB_SHARED_PTR_IMPLEMENTATION} in ${OB_SHARED_PTR_HEADER}")
 
 # Intel C++ Compiler
 # Note: Windows version uses different options!
@@ -345,6 +382,7 @@ if(${CMAKE_CXX_COMPILER_ID} MATCHES Intel AND UNIX)
 
   # define WITH_SSE2 to enable the SSE2 instruction set.
   # Available on Pentium 4, Athlon 64, and newer CPUs.
+  # TODO: Remove this? Should be handled by -march=native and only enabled if OPTIMIZE_NATIVE is ON
   if(CMAKE_SIZEOF_VOID_P EQUAL 8 OR WITH_SSE2)
     message(STATUS "Enabling the SSE2 instruction set")
     set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -msse2")
@@ -365,49 +403,37 @@ if(ENABLE_OPENMP)
   endif()
 endif()
 
-if(MSVC)
-  message(STATUS "MSVC_VERSION =" ${MSVC_VERSION})
-  if (${MSVC_VERSION} EQUAL 1600)
-    # To be added: AND SP1  OR gcc>4.0
-    add_definitions(-DHAVE_SHARED_POINTER)
-    set(SHARED_POINTER true)
-    message("SHARED_POINTER set") 
-  endif()
-endif()
-
 # Some rpath handling for Linux and Mac
 if(UNIX AND BUILD_SHARED)
   if(APPLE)
     set(CMAKE_INSTALL_NAME_DIR ${CMAKE_INSTALL_PREFIX}/${LIB_INSTALL_DIR})
   else()
-    set(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/${LIB_INSTALL_DIR}")
+    set(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/${LIB_INSTALL_DIR}"
+        CACHE PATH "Set sane rpath")
     set(CMAKE_SKIP_BUILD_RPATH FALSE)
     set(CMAKE_BUILD_WITH_INSTALL_RPATH FALSE)
     set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
   endif()
 endif()
 
-# this is adapted from KDE's FindKDE4Internal.cmake : default the build type to
-# "release with debug info".
-#
-# We will define two other build types: Debug and Release.
-# These names are case-insensitive i.e. you can do -DCMAKE_BUILD_TYPE=debug
+# Three build types are available: Release, Debug, RelWithDebInfo.
+# We default to Release.
 if(NOT CMAKE_BUILD_TYPE)
-   set(CMAKE_BUILD_TYPE RelWithDebInfo)
+   set(CMAKE_BUILD_TYPE Release)
 endif()
 
 #define various build types
 if(CMAKE_COMPILER_IS_GNUCXX)
-  set (CMAKE_CXX_FLAGS_RELEASE        "${CMAKE_CXX_FLAGS_RELEASE} -O2 -DNDEBUG")
+  set (CMAKE_CXX_FLAGS_RELEASE        "${CMAKE_CXX_FLAGS_RELEASE} -O3 -DNDEBUG")
   set (CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} -O2 -g")
-  set (CMAKE_CXX_FLAGS_DEBUG          "${CMAKE_CXX_FLAGS_DEBUG} -g3 -fno-inline")
+  set (CMAKE_CXX_FLAGS_DEBUG          "${CMAKE_CXX_FLAGS_DEBUG} -D_GLIBCXX_DEBUG -g3 -fno-inline")
 endif()
 
 file(GLOB_RECURSE headers include/openbabel/*.h)
 configure_file(${openbabel_SOURCE_DIR}/src/config.h.cmake
   ${openbabel_BINARY_DIR}/include/openbabel/babelconfig.h)
 install(FILES ${openbabel_BINARY_DIR}/include/openbabel/babelconfig.h
-  DESTINATION include/openbabel-2.0/openbabel)
+  DESTINATION ${OB_INCLUDE_DIRS}/openbabel)
 if(NOT MSVC)
   configure_file(${openbabel_SOURCE_DIR}/openbabel-2.0.pc.cmake
     ${openbabel_BINARY_DIR}/openbabel-2.0.pc @ONLY)
@@ -434,12 +460,61 @@ else()
 endif()
 #cjh
 
+option(WITH_JSON "Build JSON support" ON)
+option(OPENBABEL_USE_SYSTEM_RAPIDJSON "Use the system rapidjson if available." ON)
+if(WITH_JSON)
+  set(RAPIDJSON_VERSION_MIN 1.1.0)
+  # First try find system rapidjson
+  if(OPENBABEL_USE_SYSTEM_RAPIDJSON)
+    find_package(RapidJSON ${RAPIDJSON_VERSION_MIN})
+  endif()
+  # Otherwise download rapidjson to openbabel source directory
+  if (NOT RAPIDJSON_FOUND OR RAPIDJSON_VERSION VERSION_LESS ${RAPIDJSON_VERSION_MIN})
+    set(RAPIDJSON_VERSION 1.1.0)
+    if(NOT EXISTS "${openbabel_SOURCE_DIR}/external/rapidjson-${RAPIDJSON_VERSION}")
+      file(DOWNLOAD "https://github.com/Tencent/rapidjson/archive/v${RAPIDJSON_VERSION}.tar.gz"
+        "${openbabel_SOURCE_DIR}/external/rapidjson-${RAPIDJSON_VERSION}.tar.gz" STATUS status)
+      execute_process(COMMAND ${CMAKE_COMMAND} -E tar zxf
+        ${openbabel_SOURCE_DIR}/external/rapidjson-${RAPIDJSON_VERSION}.tar.gz
+        WORKING_DIRECTORY ${openbabel_SOURCE_DIR}/external)
+      message(STATUS "Downloaded RapidJSON to ${openbabel_SOURCE_DIR}/external/rapidjson-${RAPIDJSON_VERSION}.")
+    endif()
+    set(RAPIDJSON_FOUND TRUE)
+    set(RAPIDJSON_INCLUDE_DIRS ${openbabel_SOURCE_DIR}/external/rapidjson-${RAPIDJSON_VERSION}/include)
+  endif()
+  if(RAPIDJSON_FOUND)
+    message(STATUS "JSON formats will be supported. Using RapidJSON ${RAPIDJSON_VERSION} at ${RAPIDJSON_INCLUDE_DIRS}")
+    add_definitions(-DHAVE_RADPIJSON)
+    include_directories(${RAPIDJSON_INCLUDE_DIRS})
+  endif()
+endif()
+
 find_package(Cairo)
 if(CAIRO_FOUND)
   message(STATUS "Cairo found. PNG output will be supported.")
 else(CAIRO_FOUND)
   message(STATUS "Could NOT find Cairo. PNG output will NOT be supported.")
 endif(CAIRO_FOUND)
+
+# Should we enable optimizations for the native CPU architecture?
+# (this will speed up JSON handling, similarity calculations and maybe those involving Eigen)
+option(OPTIMIZE_NATIVE "Optimize for native CPU architecture. Turn off if compiling for distribution/reuse on other machines." OFF)
+if(OPTIMIZE_NATIVE)
+  include(OptimizeNative)
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${NATIVE_FLAGS}")
+  # Tell rapidjson which extensions are available
+  if(HAVE_SSE2)
+    add_definitions(-DRAPIDJSON_SSE2)
+  endif()
+  if(HAVE_SSE4_2)
+    add_definitions(-DRAPIDJSON_SSE42)
+  endif()
+  if(HAVE_NEON)
+    add_definitions(-DRAPIDJSON_NEON)
+  endif()
+  add_definitions(-DOPTIMIZE_NATIVE)
+  message(STATUS "Optimizing code for this machine's CPU architecture. Use -DOPTIMIZE_NATIVE=OFF if compiling for distribution/reuse on other machines.")
+endif()
 
 add_subdirectory(include)
 add_subdirectory(data)
@@ -477,6 +552,13 @@ endif()
 # Should the language bindings be regenereted?
 option(RUN_SWIG "Generate language bindings with SWIG" OFF)
 
+# Build bindings only
+option(BINDINGS_ONLY "Build bindings only" OFF)
+
+# Point to library if building bindings only
+set(BABEL_SYSTEM_LIBRARY ${BABEL_LIBRARY}
+    CACHE PATH "Point to openbabel library if building bindings only")
+
 # Should all bindings be built?
 option(ALL_BINDINGS "Build all languages bindings" OFF)
 
@@ -495,6 +577,9 @@ option(PERL_BINDINGS "Build Perl bindings" OFF)
 # Should Java bindings be built?
 option(JAVA_BINDINGS "Build Java bindings" OFF)
 
+# Should R bindings be built?
+option(R_BINDINGS "Build R bindings" OFF)
+
 # Should CSharp bindings be built?
 option(CSHARP_BINDINGS "Build Csharp bindings" OFF)
 
@@ -505,6 +590,7 @@ if(ALL_BINDINGS)
   set(PERL_BINDINGS ON)
   set(JAVA_BINDINGS ON)
   set(CSHARP_BINDINGS ON)
+  set(R_BINDINGS ON)
 endif()
 
 add_subdirectory(scripts)
@@ -546,3 +632,14 @@ install(FILES "${openbabel_BINARY_DIR}/OpenBabel2ConfigInstall.cmake"
 install(FILES "${openbabel_BINARY_DIR}/OpenBabel2ConfigVersion.cmake"
   DESTINATION ${OB_CONFIG_DIR}
   COMPONENT Development)
+
+# from https://cmake.org/Wiki/RecipeAddUninstallTarget
+########### Add uninstall target ###############
+if (NOT DEFINED EMBED_OPENBABEL)
+CONFIGURE_FILE(
+  "${CMAKE_CURRENT_SOURCE_DIR}/cmake/cmake_uninstall.cmake.in"
+  "${CMAKE_CURRENT_BINARY_DIR}/cmake/cmake_uninstall.cmake"
+  IMMEDIATE @ONLY)
+ADD_CUSTOM_TARGET(uninstall
+  "${CMAKE_COMMAND}" -P "${CMAKE_CURRENT_BINARY_DIR}/cmake/cmake_uninstall.cmake")
+endif()

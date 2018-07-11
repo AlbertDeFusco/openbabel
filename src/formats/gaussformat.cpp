@@ -14,7 +14,10 @@ GNU General Public License for more details.
 ***********************************************************************/
 #include <openbabel/babelconfig.h>
 
+#include <openbabel/data.h>
+#include <openbabel/data_utilities.h>
 #include <openbabel/obmolecformat.h>
+#include <openbabel/pointgroup.h>
 
 using namespace std;
 namespace OpenBabel
@@ -195,11 +198,11 @@ namespace OpenBabel
       {
         if (atom->GetIsotope() == 0)
           snprintf(buffer, BUFF_SIZE, "%-3s      %10.5f      %10.5f      %10.5f",
-                   etab.GetSymbol(atom->GetAtomicNum()),
+                   OBElements::GetSymbol(atom->GetAtomicNum()),
                    atom->GetX(), atom->GetY(), atom->GetZ());
         else
           snprintf(buffer, BUFF_SIZE, "%-3s(Iso=%d) %10.5f      %10.5f      %10.5f",
-                   etab.GetSymbol(atom->GetAtomicNum()),
+                   OBElements::GetSymbol(atom->GetAtomicNum()),
                    atom->GetIsotope(),
                    atom->GetX(), atom->GetY(), atom->GetZ());
 
@@ -259,6 +262,164 @@ namespace OpenBabel
     return(true);
   }
 
+  static void add_unique_pairdata_to_mol(OpenBabel::OBMol *mol,
+                                         string attribute,
+                                         string buffer,int start)
+  {
+    int i;
+    vector<string> vs;
+    OpenBabel::OBPairData *pd;
+    string method;
+
+    tokenize(vs,buffer);
+    if (vs.size() >= start)
+      {
+        method = vs[start];
+        for(i=start+1; (i<vs.size()); i++)
+          {
+            method.append(" ");
+            method.append(vs[i]);
+          }
+        pd = (OpenBabel::OBPairData *) mol->GetData(attribute);
+        if (NULL == pd)
+          {
+            pd = new OpenBabel::OBPairData();
+            pd->SetAttribute(attribute);
+            pd->SetOrigin(fileformatInput);
+            pd->SetValue(method);
+            mol->SetData(pd);
+          }
+        else
+          {
+            pd->SetValue(method);
+          }
+        }
+  }
+
+  static int extract_thermo(OpenBabel::OBMol *mol,string method,double temperature,
+                            double ezpe,double Hcorr,double Gcorr,double E0,double CV,
+                            int RotSymNum,std::vector<double> Scomponents)
+  {
+    // Initiate correction database
+    OpenBabel::OBAtomicHeatOfFormationTable *ahof = new OpenBabel::OBAtomicHeatOfFormationTable();
+    OpenBabel::OBAtomIterator OBai;
+    OpenBabel::OBAtom *OBa;
+    char valbuf[128];
+    int ii,atomid,atomicnumber,found,foundall;
+    double dhofM0, dhofMT, S0MT, DeltaSMT;
+    double eFactor = HARTEE_TO_KCALPERMOL;
+
+    // Now loop over atoms in order to correct the Delta H formation
+    OBai     = mol->BeginAtoms();
+    atomid   = 0;
+    foundall = 0;
+    dhofM0   = E0*eFactor;
+    dhofMT   = dhofM0+(Hcorr-ezpe)*eFactor;
+    S0MT     = 0;
+    if (temperature > 0)
+    {
+        // Multiply by 1000 to make the unit cal/mol K
+        S0MT += 1000*eFactor*(Hcorr-Gcorr)/temperature;
+    }
+
+    // Check for symmetry
+    OBPointGroup obPG;
+
+    obPG.Setup(mol);
+    const char *pg = obPG.IdentifyPointGroup();
+
+    double Rgas = 1.9872041; // cal/mol K http://en.wikipedia.org/wiki/Gas_constant
+    double Srot = -Rgas * log(double(RotSymNum));
+
+
+    //printf("DHf(M,0) = %g, DHf(M,T) = %g, S0(M,T) = %g\nPoint group = %s RotSymNum = %d Srot = %g\n",
+    //       dhofM0, dhofMT, S0MT, pg, RotSymNum, Srot);
+    if (RotSymNum > 1)
+    {
+        // We assume Gaussian has done this correctly!
+        Srot = 0;
+    }
+    S0MT     += Srot;
+    DeltaSMT  = S0MT;
+
+    for (OBa = mol->BeginAtom(OBai); (NULL != OBa); OBa = mol->NextAtom(OBai))
+      {
+          double dhfx0, dhfxT, S0xT;
+        atomicnumber = OBa->GetAtomicNum();
+        found = ahof->GetHeatOfFormation(OBElements::GetSymbol(atomicnumber),
+                                         0,
+                                         method,
+                                         temperature,
+                                         &dhfx0, &dhfxT, &S0xT);
+        if (1 == found)
+          {
+            dhofM0 += dhfx0;
+            dhofMT += dhfxT;
+            DeltaSMT += S0xT;
+            foundall ++;
+          }
+        atomid++;
+      }
+    if (foundall == atomid)
+      {
+        std::string attr[5];
+        double result[5];
+        char buf[32];
+
+        attr[0].assign("DeltaHform(0K)");
+        result[0] = dhofM0;
+        snprintf(buf, sizeof(buf), "DeltaHform(%gK)", temperature);
+        attr[1].assign(buf);
+        result[1] = dhofMT;
+        snprintf(buf, sizeof(buf), "DeltaSform(%gK)", temperature);
+        attr[2].assign(buf);
+        result[2] = DeltaSMT;
+        snprintf(buf, sizeof(buf), "DeltaGform(%gK)", temperature);
+        attr[3].assign(buf);
+        result[3] = dhofMT - temperature*result[2]/1000;
+        snprintf(buf, sizeof(buf), "S0(%gK)", temperature);
+        attr[4].assign(buf);
+        result[4] = S0MT;
+
+        add_unique_pairdata_to_mol(mol, "method", method, 0);
+        for(ii=0; (ii<5); ii++)
+        {
+            // Add to molecule properties
+            sprintf(valbuf,"%f", result[ii]);
+            add_unique_pairdata_to_mol(mol, attr[ii], valbuf, 0);
+        }
+        sprintf(valbuf, "%f", ezpe*eFactor);
+        add_unique_pairdata_to_mol(mol, "zpe", valbuf, 0);
+        sprintf(valbuf, "%f", CV);
+        add_unique_pairdata_to_mol(mol, "cv", valbuf, 0);
+        sprintf(valbuf, "%f", CV+Rgas);
+        add_unique_pairdata_to_mol(mol, "cp", valbuf, 0);
+        // Entropy components
+        if (Scomponents.size() == 3)
+        {
+            const char *comps[3] = { "Strans", "Srot", "Svib" };
+            for(int i=0; (i<3); i++)
+            {
+                sprintf(valbuf, "%f", Scomponents[i]);
+                add_unique_pairdata_to_mol(mol, comps[i], valbuf, 0);
+            }
+        }
+        // Finally store the energy in internal data structures as well.
+        mol->SetEnergy(dhofMT);
+      }
+    else
+      {
+        // Debug message?
+      }
+    // Clean up
+    delete ahof;
+
+    if (foundall == atomid)
+      return 1;
+    else
+      return 0;
+  }
+
   // Reading Gaussian output has been tested for G98 and G03 to some degree
   // If you have problems (or examples of older output), please contact
   // the openbabel-discuss@lists.sourceforge.net mailing list and/or post a bug
@@ -274,14 +435,29 @@ namespace OpenBabel
     const char* title = pConv->GetTitle();
 
     char buffer[BUFF_SIZE];
-    string str,str1;
+    string str,str1,str2,thermo_method;
     double x,y,z;
     OBAtom *atom;
-    vector<string> vs;
-    int charge = 0;
-    unsigned int spin = 1;
+    vector<string> vs,vs2;
+    int total_charge = 0;
+    unsigned int spin_multiplicity = 1;
     bool hasPartialCharges = false;
     string chargeModel; // descriptor for charges (e.g. "Mulliken")
+
+    // Variable for G2/G3/G4 etc. calculations
+    double ezpe,Hcorr,Gcorr,E0,CV;
+    bool ezpe_set=false,Hcorr_set=false,Gcorr_set=false,E0_set=false,CV_set=false;
+    double temperature = 0; /* Kelvin */
+    std::vector<double> Scomponents;
+    // Electrostatic potential. ESP is calculated 
+    // once unless the Opt and Pop jobs are combined. 
+    // In this case, ESP is calculated once before
+    // the geometry optmization and once after. If this
+    // happens, the second ESP must be added to OBMol.
+    OBFreeGrid *esp   = NULL;
+    int NumEsp        = 1; 
+    int NumEspCounter = 0;
+    bool ESPisAdded   = false;
 
     // coordinates of all steps
     // Set conformers to all coordinates we adopted
@@ -303,7 +479,7 @@ namespace OpenBabel
     //Rotational data
     std::vector<double> RotConsts(3);
     int RotSymNum=1;
-    OBRotationData::RType RotorType;
+    OBRotationData::RType RotorType = OBRotationData::UNKNOWN;
 
     // Translation vectors (if present)
     vector3 translationVectors[3];
@@ -317,6 +493,7 @@ namespace OpenBabel
     std::vector<double> orbitals;
     std::vector<std::string> symmetries;
     int aHOMO, bHOMO, betaStart;
+    aHOMO = bHOMO = betaStart = -1;
 
     int i=0;
     bool no_symmetry=false;
@@ -336,42 +513,70 @@ namespace OpenBabel
           {
             i++;
             tokenize (vs, buffer);
-            strcpy (coords_type, vs[0].c_str());
+            // gotta check what types of orientation are present
+            strncpy (coords_type, vs[0].c_str(), 24);
             strcat (coords_type, " orientation:");
           }
         if ((no_symmetry && i==1) || i==2)
            break;
-	// Check for the last line of normal output and exit loop, otherwise,
-	// the rewind below will no longer work.
-        if (strstr(buffer,"Normal termination of Gaussian") != NULL)
-           break;
       }
+    // Reset end-of-file pointers etc.
+    ifs.clear();
     ifs.seekg(0);  //rewind
 
     mol.BeginModify();
     while (ifs.getline(buffer,BUFF_SIZE))
       {
-
         if(strstr(buffer, "Entering Gaussian") != NULL)
         {
           //Put some metadata into OBCommentData
           string comment("Gaussian ");
 
-          if(strchr(buffer,'='))
-          {
+          if(NULL != strchr(buffer,'='))
+            {
             comment += strchr(buffer,'=')+2;
             comment += "";
-            for(unsigned i=0; i<115, ifs; ++i)
+            for(unsigned i=0; i<115 && ifs; ++i)
             {
               ifs.getline(buffer,BUFF_SIZE);
-              if(buffer[1]=='#')
+              if(strstr(buffer,"Revision") != NULL)
+                {
+                  if (buffer[strlen(buffer)-1] == ',')
+                    {
+                      buffer[strlen(buffer)-1] = '\0';
+                    }
+                  add_unique_pairdata_to_mol(&mol,"program",buffer,0);
+                }
+              else if(buffer[1]=='#')
               {
                 //the line describing the method
+                if(strstr(buffer,"Opt") != NULL)
+                {
+                    // It is expected to have two sets of ESP in 
+                    // the log file if Opt is combined with Pop. 
+                    NumEsp = 2;
+                }
                 comment += buffer;
                 OBCommentData *cd = new OBCommentData;
                 cd->SetData(comment);
                 cd->SetOrigin(fileformatInput);
                 mol.SetData(cd);
+
+                tokenize(vs,buffer);
+                if (vs.size() > 1)
+                  {
+                    char *str = strdup(vs[1].c_str());
+                    char *ptr = strchr(str,'/');
+
+                    if (NULL != ptr)
+                      {
+                        *ptr = ' ';
+                        add_unique_pairdata_to_mol(&mol,"basis",ptr,0);
+                        *ptr = '\0';
+                        add_unique_pairdata_to_mol(&mol,"method",str,0);
+                      }
+                  }
+
                 break;
               }
             }
@@ -383,8 +588,8 @@ namespace OpenBabel
             tokenize(vs, buffer, " \t\n");
             if (vs.size() == 6)
               {
-                charge = atoi(vs[2].c_str());
-                spin = atoi(vs[5].c_str());
+                total_charge = atoi(vs[2].c_str());
+                spin_multiplicity = atoi(vs[5].c_str());
               }
 
             ifs.getline(buffer,BUFF_SIZE);
@@ -398,11 +603,12 @@ namespace OpenBabel
             ifs.getline(buffer,BUFF_SIZE);	// ---------------
             ifs.getline(buffer,BUFF_SIZE);
             tokenize(vs,buffer);
-            while (vs.size() == 6)
+            while (vs.size()>4)
               {
-                x = atof((char*)vs[3].c_str());
-                y = atof((char*)vs[4].c_str());
-                z = atof((char*)vs[5].c_str());
+                int corr = vs.size()==5 ? -1 : 0; //g94; later versions have an extra column
+                x = atof((char*)vs[3+corr].c_str());
+                y = atof((char*)vs[4+corr].c_str());
+                z = atof((char*)vs[5+corr].c_str());
                 int atomicNum = atoi((char*)vs[1].c_str());
 
                 if (atomicNum > 0) // translation vectors are "-2"
@@ -426,6 +632,8 @@ namespace OpenBabel
               }
             // done with reading atoms
             natoms = mol.NumAtoms();
+            if(natoms==0)
+              return false;
             // malloc / memcpy
             double *tmpCoords = new double [(natoms)*3];
             memcpy(tmpCoords, &coordinates[0], sizeof(double)*natoms*3);
@@ -451,11 +659,84 @@ namespace OpenBabel
                 }
               if (!ifs.getline(buffer,BUFF_SIZE)) break;
             }
+        else if(strstr(buffer,"Traceless Quadrupole moment") != NULL)
+            {
+              ifs.getline(buffer,BUFF_SIZE); // actual components XX ### YY #### ZZ ###
+              tokenize(vs,buffer);
+              ifs.getline(buffer,BUFF_SIZE); // actual components XY ### XZ #### YZ ###
+              tokenize(vs2,buffer);
+              if ((vs.size() >= 6) && (vs2.size() >= 6))
+                {
+                  double Q[3][3];
+                  OpenBabel::OBMatrixData *quadrupoleMoment = new OpenBabel::OBMatrixData;
+
+                  Q[0][0] = atof(vs[1].c_str());
+                  Q[1][1] = atof(vs[3].c_str());
+                  Q[2][2] = atof(vs[5].c_str());
+                  Q[1][0] = Q[0][1] = atof(vs2[1].c_str());
+                  Q[2][0] = Q[0][2] = atof(vs2[3].c_str());
+                  Q[2][1] = Q[1][2] = atof(vs2[5].c_str());
+                  matrix3x3 quad(Q);
+
+                  quadrupoleMoment->SetAttribute("Traceless Quadrupole Moment");
+                  quadrupoleMoment->SetData(quad);
+                  quadrupoleMoment->SetOrigin(fileformatInput);
+                  mol.SetData(quadrupoleMoment);
+                }
+              if (!ifs.getline(buffer,BUFF_SIZE)) break;
+            }
+        else if(strstr(buffer,"Exact polarizability") != NULL)
+            {
+              // actual components XX, YX, YY, XZ, YZ, ZZ
+              double xx, xy, yy, xz, yz, zz;              
+              const char *ptr = buffer+strlen("Exact polarizability:   ");
+              if (ptr &&
+                  6 == sscanf(ptr, "%8lf%8lf%8lf%8lf%8lf%8lf",
+                              &xx, &xy, &yy, &xz, &yz, &zz))
+              {
+                  double Q[3][3];
+                  OpenBabel::OBMatrixData *pol_tensor = new OpenBabel::OBMatrixData;
+
+                  Q[0][0] = xx;
+                  Q[1][1] = yy;
+                  Q[2][2] = zz;
+                  Q[1][0] = Q[0][1] = xy;
+                  Q[2][0] = Q[0][2] = xz;
+                  Q[2][1] = Q[1][2] = yz;
+                  matrix3x3 pol(Q);
+                  
+                  if (mol.HasData("Exact polarizability"))
+                    {
+                      mol.DeleteData("Exact polarizability"); // Delete the old one to add the new one
+                    }
+                  pol_tensor->SetAttribute("Exact polarizability");
+                  pol_tensor->SetData(pol);
+                  pol_tensor->SetOrigin(fileformatInput);
+                  mol.SetData(pol_tensor);
+                }
+              if (!ifs.getline(buffer,BUFF_SIZE)) break;
+            }
         else if(strstr(buffer,"Total atomic charges") != NULL ||
-                strstr(buffer,"Mulliken atomic charges") != NULL)
+                strstr(buffer,"Mulliken atomic charges") != NULL ||
+                strstr(buffer,"Mulliken charges:") != NULL)
           {
             hasPartialCharges = true;
             chargeModel = "Mulliken";
+            /*
+              Gaussian usually calculates the electronic 
+              properties more than once, before and after 
+              geometry optimization. The second one is what
+              we should be interested in. Thus, here, we 
+              delete the previously added Data to store the
+              new one.
+             */
+            if (mol.HasData("Mulliken charges"))
+              {
+                mol.DeleteData("Mulliken charges");
+              }
+            OBPcharge *Mulliken = new OpenBabel::OBPcharge();
+            std::vector<double> MPA_q;
+            
             ifs.getline(buffer,BUFF_SIZE);	// column headings
             ifs.getline(buffer,BUFF_SIZE);
             tokenize(vs,buffer);
@@ -466,15 +747,174 @@ namespace OpenBabel
                 if (!atom)
                   break;
                 atom->SetPartialCharge(atof(vs[2].c_str()));
-
+                MPA_q.push_back(atof(vs[2].c_str()));
                 if (!ifs.getline(buffer,BUFF_SIZE)) break;
                 tokenize(vs,buffer);
+                                    
+              } 
+            if (MPA_q.size() == mol.NumAtoms()) 
+            {
+                Mulliken->AddPartialCharge(MPA_q);
+                Mulliken->SetAttribute("Mulliken charges");
+                Mulliken->SetOrigin(fileformatInput);
+                mol.SetData(Mulliken); 
+            }
+            else
+            {
+                cout << "Read " << MPA_q.size() << " Mulliken charges for " << mol.NumAtoms() << " atoms\n";
+            }              
+          }
+        else if(strstr(buffer,"Hirshfeld charges") != NULL &&
+                strstr(buffer,"CM5 charges") != NULL)
+          {
+            /*
+              Hirshfeld and CM5 charges are printed in the
+              same block in the Gaussian log file. 
+             */
+            hasPartialCharges = true;
+            chargeModel = "Hirshfeld";
+            if (mol.HasData("Hirshfeld charges"))
+              {
+                mol.DeleteData("Hirshfeld charges");
+              }
+            if (mol.HasData("CM5 charges"))
+              {
+                mol.DeleteData("CM5 charges");
+              }
+            OBPcharge *Hirshfeld = new OpenBabel::OBPcharge();
+            OBPcharge *CM5       = new OpenBabel::OBPcharge();
+            std::vector<double> HPA_q;
+            std::vector<double> CM5_q;
+            ifs.getline(buffer,BUFF_SIZE);	// column headings
+            ifs.getline(buffer,BUFF_SIZE);
+            tokenize(vs,buffer);
+            while (vs.size() >= 8 &&
+                   strstr(buffer,"Tot ") == NULL)
+              {
+                atom = mol.GetAtom(atoi(vs[0].c_str()));
+                if (!atom)
+                  break;
+                atom->SetPartialCharge(atof(vs[2].c_str()));             
+                HPA_q.push_back(atof(vs[2].c_str()));
+                CM5_q.push_back(atof(vs[7].c_str()));
+                if (!ifs.getline(buffer,BUFF_SIZE)) break;
+                tokenize(vs,buffer);
+                                    
+              }
+            if (CM5_q.size() == mol.NumAtoms() and 
+                HPA_q.size() == mol.NumAtoms()) 
+            {
+                Hirshfeld->AddPartialCharge(HPA_q);
+                Hirshfeld->SetAttribute("Hirshfeld charges");
+                Hirshfeld->SetOrigin(fileformatInput);
+                CM5->AddPartialCharge(CM5_q);
+                CM5->SetAttribute("CM5 charges");
+                CM5->SetOrigin(fileformatInput);              
+                mol.SetData(CM5);
+                mol.SetData(Hirshfeld);
+            }
+            else
+            {
+                cout << "Read " << HPA_q.size() << " Hirshfeld charges for " << mol.NumAtoms() << " atoms\n";
+            } 
+          }
+        else if (strstr(buffer, "Electrostatic Properties Using The SCF Density") != NULL)
+          {
+              NumEspCounter++;
+          }
+        else if (strstr(buffer, "Atomic Center") != NULL && !ESPisAdded)
+          {
+            // Data points for ESP calculation
+            tokenize(vs,buffer);
+            if (NULL == esp)
+              esp = new OpenBabel::OBFreeGrid();
+            if (vs.size() == 8)
+              {
+                esp->AddPoint(atof(vs[5].c_str()),atof(vs[6].c_str()),
+                              atof(vs[7].c_str()),0);
+              }
+            else if (vs.size() > 5)
+              {
+                double x,y,z;
+                if (3 == sscanf(buffer+32,"%10lf%10lf%10lf",&x,&y,&z))
+                  {
+                    esp->AddPoint(x,y,z,0);
+                  }
+              }
+          }
+        else if (strstr(buffer, "ESP Fit Center") != NULL && !ESPisAdded)
+          {
+            // Data points for ESP calculation
+            tokenize(vs,buffer);
+            if (NULL == esp)
+              esp = new OpenBabel::OBFreeGrid();
+            if (vs.size() == 9)
+              {
+                esp->AddPoint(atof(vs[6].c_str()),atof(vs[7].c_str()),
+                              atof(vs[8].c_str()),0);
+              }
+            else if (vs.size() > 6)
+              {
+                double x,y,z;
+                if (3 == sscanf(buffer+32,"%10lf%10lf%10lf",&x,&y,&z))
+                  {
+                    esp->AddPoint(x,y,z,0);
+                  }
+              }
+          }
+        else if (strstr(buffer, "Electrostatic Properties (Atomic Units)") != NULL && !ESPisAdded)
+          {
+            int i,np;
+            OpenBabel::OBFreeGridPoint *fgp;
+            OpenBabel::OBFreeGridPointIterator fgpi;
+            for(i=0; (i<5); i++)
+              {
+                ifs.getline(buffer,BUFF_SIZE);	// skip line
+              }
+            // Assume file is correct and that potentials are present
+            // where they should.
+            np = esp->NumPoints();
+            fgpi = esp->BeginPoints();
+            i = 0;
+            for(fgp = esp->BeginPoint(fgpi); (NULL != fgp); fgp = esp->NextPoint(fgpi))
+              {
+                ifs.getline(buffer,BUFF_SIZE);
+                tokenize(vs,buffer);
+                if (vs.size() >= 2)
+                  {
+                    fgp->SetV(atof(vs[2].c_str()));
+                    i++;
+                  }
+              }
+            if (NumEsp == NumEspCounter)
+              {
+                if (i == np)
+                  {
+                    esp->SetAttribute("Electrostatic Potential");
+                    esp->SetOrigin(fileformatInput);
+                    mol.SetData(esp);
+                    ESPisAdded = true;
+                  }
+                else
+                  {
+                    cout << "Read " << esp->NumPoints() << " ESP points i = " << i << "\n";
+                  }
+              }
+            else if (!ESPisAdded)
+              {
+                esp->Clear();
               }
           }
         else if (strstr(buffer, "Charges from ESP fit") != NULL)
           {
             hasPartialCharges = true;
             chargeModel = "ESP";
+            if (mol.HasData("ESP charges"))
+              {
+                mol.DeleteData("ESP charges");
+              }
+            OBPcharge *ESP = new OpenBabel::OBPcharge();
+            std::vector<double> ESP_q;
             ifs.getline(buffer,BUFF_SIZE);	// Charge / dipole line
             ifs.getline(buffer,BUFF_SIZE); // column header
             ifs.getline(buffer,BUFF_SIZE); // real charges
@@ -486,10 +926,21 @@ namespace OpenBabel
                 if (!atom)
                   break;
                 atom->SetPartialCharge(atof(vs[2].c_str()));
-
+                ESP_q.push_back(atof(vs[2].c_str()));
                 if (!ifs.getline(buffer,BUFF_SIZE)) break;
                 tokenize(vs,buffer);
               }
+            if (ESP_q.size() == mol.NumAtoms()) 
+            {
+                ESP->AddPartialCharge(ESP_q);
+                ESP->SetAttribute("ESP charges");
+                ESP->SetOrigin(fileformatInput);
+                mol.SetData(ESP);
+            }
+            else
+            {
+                cout << "Read " << ESP_q.size() << " ESP charges for " << mol.NumAtoms() << " atoms\n";
+            }           
           }
         else if(strstr(buffer,"Natural Population") != NULL)
           {
@@ -535,7 +986,7 @@ namespace OpenBabel
           tokenize(vs, buffer);
           vector<vector3> vib1, vib2, vib3;
           double x, y, z;
-          while(vs.size() > 5) {
+          while(vs.size() >= 5) {
             for (unsigned int i = 2; i < vs.size()-2; i += 3) {
               x = atof(vs[i].c_str());
               y = atof(vs[i+1].c_str());
@@ -596,33 +1047,38 @@ namespace OpenBabel
           {
             symmetries.clear();
             std::string label; // used as a temporary to remove "(" and ")" from labels
-            int offset = 0;
+            int iii,offset = 0;
+            bool bDoneSymm;
 
-            while(true) {
-              ifs.getline(buffer, BUFF_SIZE);
-              tokenize(vs, buffer); // parse first line "Occupied" ...
-              for (unsigned int i = 1; i < vs.size(); ++i) {
-                label = vs[i].substr(1, vs[i].length() - 2);
-                symmetries.push_back(label);
+            // Extract both Alpha and Beta symmetries
+            ifs.getline(buffer, BUFF_SIZE); // skip the current line
+            for(iii=0; (iii<2); iii++) {
+              if (strstr(buffer, "electronic state"))
+                break; // We've gone too far!
+              while (!ifs.eof() &&
+                     ((NULL != strstr(buffer,"Alpha")) ||
+                      (NULL != strstr(buffer,"Beta")))) {
+                // skip the Alpha: and Beta: title lines
+                ifs.getline(buffer, BUFF_SIZE);
               }
-              ifs.getline(buffer, BUFF_SIZE);
+              do {
+                bDoneSymm = (NULL == strstr(buffer, "("));
+                if (!bDoneSymm) {
+                  tokenize(vs, buffer);
 
-              // Parse remaining lines
-              while (strstr(buffer, "(")) {
-                tokenize(vs, buffer);
-                if (strstr(buffer, "Virtual")) {
-                  offset = 1; // skip first token
-                } else {
-                  offset = 0;
+                  if ((NULL != strstr(buffer, "Occupied")) || (NULL != strstr(buffer, "Virtual"))) {
+                    offset = 1; // skip first token
+                  } else {
+                    offset = 0;
+                  }
+                  for (unsigned int i = offset; i < vs.size(); ++i) {
+                    label = vs[i].substr(1, vs[i].length() - 2);
+                    symmetries.push_back(label);
+                  }
+                  ifs.getline(buffer, BUFF_SIZE); // get a new line if we've been reading symmetries
                 }
-                for (unsigned int i = offset; i < vs.size(); ++i) {
-                  label = vs[i].substr(1, vs[i].length() - 2);
-                  symmetries.push_back(label);
-                }
-                ifs.getline(buffer, BUFF_SIZE); // get next line
-              } // end parsing symmetry labels
-              if (!strstr(buffer, "Beta")) // no beta orbitals
-                break;
+                // don't read a new line if we're done with symmetries
+              } while (!ifs.eof() && !bDoneSymm);
             } // end alpha/beta section
           }
         else if (strstr(buffer, "Alpha") && strstr(buffer, ". eigenvalues --")) {
@@ -644,9 +1100,9 @@ namespace OpenBabel
         {
           // The above line appears for each state, so just append the info to the vectors
           tokenize(vs, buffer);
-          if (vs.size() == 9) {
+          if (vs.size() >= 9) {
             double wavelength = atof(vs[6].c_str());
-            double force = atof(vs[8].substr(2).c_str());
+            double force = atof(vs[8].substr(2).c_str()); // remove the "f=" part
             Forces.push_back(force);
             Wavelengths.push_back(wavelength);
           }
@@ -709,12 +1165,10 @@ namespace OpenBabel
                 atom->SetData(nmrShift);
               }
           }
-
         else if(strstr(buffer,"SCF Done:") != NULL)
           {
-#define HARTREE_TO_KCAL 627.509469
             tokenize(vs,buffer);
-            mol.SetEnergy(atof(vs[4].c_str()) * HARTREE_TO_KCAL);
+            mol.SetEnergy(atof(vs[4].c_str()) * HARTEE_TO_KCALPERMOL);
             confEnergies.push_back(mol.GetEnergy());
           }
 /* Temporarily commented out until the handling of energy in OBMol is sorted out
@@ -728,8 +1182,90 @@ namespace OpenBabel
             tokenize(vs,buffer);
             mol.SetEnergy(atof(vs[1].c_str()));
             confEnergies.push_back(mol.GetEnergy());
-          }
+            }
 */
+        else if(strstr(buffer,"Standard basis:") != NULL)
+          {
+            add_unique_pairdata_to_mol(&mol,"basis",buffer,2);
+          }
+        else if(strstr(buffer,"Zero-point correction=") != NULL)
+          {
+            tokenize(vs,buffer);
+            ezpe = atof(vs[2].c_str());
+            ezpe_set = true;
+          }
+        else if(strstr(buffer,"Thermal correction to Enthalpy=") != NULL)
+          {
+            tokenize(vs,buffer);
+            Hcorr = atof(vs[4].c_str());
+            Hcorr_set = true;
+          }
+        else if(strstr(buffer,"Thermal correction to Gibbs Free Energy=") != NULL)
+          {
+            tokenize(vs,buffer);
+            Gcorr = atof(vs[6].c_str());
+            Gcorr_set = true;
+          }
+        else if (strstr(buffer,"CV") != NULL)
+          {
+              ifs.getline(buffer,BUFF_SIZE); //Headers
+              ifs.getline(buffer,BUFF_SIZE); //Total heat capacity
+              tokenize(vs,buffer);
+              if (vs.size() == 4)
+              {
+                  if (vs[0].compare("Total") == 0)
+                  {
+                      CV = atof(vs[2].c_str());
+                      CV_set = true;
+                  }
+              }
+              ifs.getline(buffer,BUFF_SIZE); //Electronic
+              ifs.getline(buffer,BUFF_SIZE); //Translational
+              tokenize(vs,buffer);
+              if ((vs.size() == 4) && (vs[0].compare("Translational") == 0) )
+              {
+                  Scomponents.push_back(atof(vs[3].c_str()));
+              }
+              ifs.getline(buffer,BUFF_SIZE); //Rotational
+              tokenize(vs,buffer);
+              if ((vs.size() == 4) && (vs[0].compare("Rotational") == 0))
+              {
+                  Scomponents.push_back(atof(vs[3].c_str()));
+              }
+              ifs.getline(buffer,BUFF_SIZE); //Vibrational
+              tokenize(vs,buffer);
+              if ((vs.size() == 4) && (vs[0].compare("Vibrational") == 0))
+              {
+                  Scomponents.push_back(atof(vs[3].c_str()));
+              }
+          }
+        else if ((strstr(buffer,"Temperature=") != NULL) &&
+                 (strstr(buffer,"Pressure=") != NULL))
+          {
+              tokenize(vs,buffer);
+              temperature = atof(vs[1].c_str());
+          }
+        else if (strstr(buffer, "(0 K)") != NULL)
+          {
+            /* This must be the last else */
+            int i,nsearch;
+            const char *search[] = { "CBS-QB3 (0 K)", "G2(0 K)", "G3(0 K)", "G4(0 K)", "W1BD (0 K)", "W1U  (0 K)" };
+            const char *mymeth[] = { "CBS-QB3", "G2", "G3", "G4", "W1BD", "W1U" };
+            const int myindex[] = { 3, 2, 2, 2, 3, 3 };
+
+            nsearch = sizeof(search)/sizeof(search[0]);
+            for(i=0; (i<nsearch); i++)
+              {
+                if(strstr(buffer,search[i]) != NULL)
+                  {
+                    tokenize(vs,buffer);
+                    E0 = atof(vs[myindex[i]].c_str());
+                    E0_set = 1;
+                    thermo_method = mymeth[i];
+                    break;
+                  }
+              }
+          }
       } // end while
 
     if (mol.NumAtoms() == 0) { // e.g., if we're at the end of a file PR#1737209
@@ -739,17 +1275,13 @@ namespace OpenBabel
 
     mol.EndModify();
 
-    // Set conformers to all coordinates we adopted
-    // but remove last geometry -- it's a duplicate
-    if (vconf.size() > 1)
-      vconf.pop_back();
-    mol.SetConformers(vconf);
-    mol.SetConformer(mol.NumConformers() - 1);
-    // Copy the conformer data too
-    confData->SetDimension(confDimensions);
-    confData->SetEnergies(confEnergies);
-    confData->SetForces(confForces);
-    mol.SetData(confData);
+    // Check whether we have data to extract heat of formation.
+    if (ezpe_set && Hcorr_set && Gcorr_set && E0_set &&
+        CV_set && (thermo_method.size() > 0))
+      {
+          extract_thermo(&mol,thermo_method,temperature,ezpe,
+                         Hcorr,Gcorr,E0,CV,RotSymNum,Scomponents);
+      }
 
     // Attach orbital data, if there is any
     if (orbitals.size() > 0)
@@ -762,20 +1294,28 @@ namespace OpenBabel
           std::vector<double>      betaOrbitals;
           std::vector<std::string> betaSymmetries;
           unsigned int initialSize = orbitals.size();
-          for (unsigned int i = betaStart; i < initialSize; ++i) {
-            betaOrbitals.push_back(orbitals[i]);
-            if (symmetries.size() > 0)
-              betaSymmetries.push_back(symmetries[i]);
-          }
-          // ok, now erase the end elements of orbitals and symmetries
-          for (unsigned int i = betaStart; i < initialSize; ++i) {
-            orbitals.pop_back();
-            if (symmetries.size() > 0)
-              symmetries.pop_back();
-          }
-          // and load the alphas and betas
-          od->LoadAlphaOrbitals(orbitals, symmetries, aHOMO);
-          od->LoadBetaOrbitals(betaOrbitals, betaSymmetries, bHOMO);
+          unsigned int symmSize = symmetries.size();
+          if (initialSize != symmSize || betaStart == -1)
+            {
+              cerr << "Inconsistency: orbitals have " << initialSize << " elements while symmetries have " << symmSize << endl;
+            }
+          else
+            {
+              for (unsigned int i = betaStart; i < initialSize; ++i) {
+                betaOrbitals.push_back(orbitals[i]);
+                if (symmetries.size() > 0)
+                  betaSymmetries.push_back(symmetries[i]);
+              }
+              // ok, now erase the end elements of orbitals and symmetries
+              for (unsigned int i = betaStart; i < initialSize; ++i) {
+                orbitals.pop_back();
+                if (symmetries.size() > 0)
+                  symmetries.pop_back();
+              }
+              // and load the alphas and betas
+              od->LoadAlphaOrbitals(orbitals, symmetries, aHOMO);
+              od->LoadBetaOrbitals(betaOrbitals, betaSymmetries, bHOMO);
+            }
         }
         od->SetOrigin(fileformatInput);
         mol.SetData(od);
@@ -819,10 +1359,27 @@ namespace OpenBabel
       mol.SetData(etd);
     }
 
+    // set some default coordinates
+    // ConnectTheDots will remove conformers, so we add those later
+    mol.SetCoordinates(vconf[vconf.size() - 1]);
+
     if (!pConv->IsOption("b",OBConversion::INOPTIONS))
       mol.ConnectTheDots();
     if (!pConv->IsOption("s",OBConversion::INOPTIONS) && !pConv->IsOption("b",OBConversion::INOPTIONS))
       mol.PerceiveBondOrders();
+
+    // Set conformers to all coordinates we adopted
+    // but remove last geometry -- it's a duplicate
+    if (vconf.size() > 1)
+      vconf.pop_back();
+
+    mol.SetConformers(vconf);
+    mol.SetConformer(mol.NumConformers() - 1);
+    // Copy the conformer data too
+    confData->SetDimension(confDimensions);
+    confData->SetEnergies(confEnergies);
+    confData->SetForces(confForces);
+    mol.SetData(confData);
 
     if (hasPartialCharges) {
       mol.SetPartialChargesPerceived();
@@ -834,8 +1391,8 @@ namespace OpenBabel
       dp->SetOrigin(fileformatInput);
       mol.SetData(dp);
     }
-    mol.SetTotalCharge(charge);
-    mol.SetTotalSpinMultiplicity(spin);
+    mol.SetTotalCharge(total_charge);
+    mol.SetTotalSpinMultiplicity(spin_multiplicity);
 
     mol.SetTitle(title);
     return(true);

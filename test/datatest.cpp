@@ -29,21 +29,23 @@ GNU General Public License for more details.
 
 #include <openbabel/mol.h>
 #include <openbabel/data.h>
+#include <openbabel/elements.h>
 
 using namespace std;
 using namespace OpenBabel;
 
-int main(int argc,char *argv[])
+int datatest(int argc, char* argv[])
 {
-  // turn off slow sync with C-style output (we don't use it anyway).
-  std::ios::sync_with_stdio(false);
+  int defaultchoice = 1;
+  
+  int choice = defaultchoice;
 
-  if (argc != 1)
-    {
-      cout << "Usage: data" << endl;
-      cout << " Unit tests for Open Babel data tables " << endl;
-      return(-1);
+  if (argc > 1) {
+    if(sscanf(argv[1], "%d", &choice) != 1) {
+      printf("Couldn't parse that input as a number\n");
+      return -1;
     }
+  }
 
   cout << "# Unit tests for data tables \n";
 
@@ -52,7 +54,7 @@ int main(int argc,char *argv[])
 
   cout << "ok 1\n"; // for loading tests
 
-  double mass = etab.GetMass(2);
+  double mass = OBElements::GetMass(2);
   if ( fabs(mass - 4.0026 ) < 2e-3 )
     cout << "ok 2\n";
   else

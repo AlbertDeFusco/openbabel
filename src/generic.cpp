@@ -20,13 +20,14 @@ GNU General Public License for more details.
 #include <openbabel/babelconfig.h>
 
 #include <string>
+#include <set>
 
 #include <openbabel/mol.h>
 #include <openbabel/generic.h>
 #include <openbabel/math/matrix3x3.h>
+#include <openbabel/elements.h>
 
 // needed for msvc to have at least one reference to AtomClass, AliasData in openbabel library
-#include <openbabel/atomclass.h>
 #include <openbabel/alias.h>
 
 using namespace std;
@@ -238,7 +239,7 @@ namespace OpenBabel
     _bgn(0), _end(0), _ord(0), _stereo(0)
   {  }
 
-  OBVirtualBond::OBVirtualBond(int bgn,int end,int ord,int stereo):
+  OBVirtualBond::OBVirtualBond(unsigned int bgn, unsigned int end, unsigned int ord, int stereo):
     OBGenericData("VirtualBondData", OBGenericDataType::VirtualBondData, perceived),
     _bgn(bgn), _end(end), _ord(ord), _stereo(stereo)
   {  }
@@ -539,7 +540,7 @@ namespace OpenBabel
     };
 
     if (name.length () == 0)
-	  {
+      {
         if (_spaceGroup != NULL)
           return _spaceGroup->GetId();
         else
@@ -579,51 +580,56 @@ namespace OpenBabel
   {
     const SpaceGroup *sg = GetSpaceGroup(); // the actual space group and transformations for this unit cell
 
-    // For each atom, we loop through: convert the coords back to inverse space, apply the transformations and create new atoms
-    vector3 uniqueV, newV, updatedCoordinate;
-    list<vector3> transformedVectors; // list of symmetry-defined copies of the atom
-    list<vector3>::iterator transformIterator, duplicateIterator;
-    OBAtom *newAtom;
-    list<OBAtom*> atoms; // keep the current list of unique atoms -- don't double-create
-    list<vector3> coordinates; // all coordinates to prevent duplicates
-    bool foundDuplicate;
-    FOR_ATOMS_OF_MOL(atom, *mol)
-      atoms.push_back(&(*atom));
+    if(sg == NULL)
+      return ;
 
-    list<OBAtom*>::iterator i;
-    for (i = atoms.begin(); i != atoms.end(); ++i) {
-      uniqueV = (*i)->GetVector();
+    // For each atom, we loop through: convert the coords back to inverse space, apply the transformations and create new atoms
+    vector3 baseV, uniqueV, updatedCoordinate;
+    list<vector3> transformedVectors; // list of symmetry-defined copies of the atom
+    list<vector3>::iterator transformIter;
+    list<OBAtom*>::iterator deleteIter, atomIter;
+    OBAtom *newAtom;
+    list<OBAtom*> atoms, atomsToDelete;
+    char hash[22];
+    set<string> coordinateSet;
+
+    // Check original mol for duplicates
+    FOR_ATOMS_OF_MOL(atom, *mol) {
+      baseV = atom->GetVector();
+      baseV = CartesianToFractional(baseV);
+      baseV = WrapFractionalCoordinate(baseV);
+      snprintf(hash, 22, "%03d,%.3f,%.3f,%.3f", atom->GetAtomicNum(), baseV.x(), baseV.y(), baseV.z());
+      if (coordinateSet.insert(hash).second) { // True if new entry
+        atoms.push_back(&(*atom));
+      } else {
+        atomsToDelete.push_back(&(*atom));
+      }
+    }
+    for (deleteIter = atomsToDelete.begin(); deleteIter != atomsToDelete.end(); ++deleteIter) {
+      mol->DeleteAtom(*deleteIter);
+    }
+
+    // Cross-check all transformations for duplicity
+    for (atomIter = atoms.begin(); atomIter != atoms.end(); ++atomIter) {
+      uniqueV = (*atomIter)->GetVector();
       uniqueV = CartesianToFractional(uniqueV);
       uniqueV = WrapFractionalCoordinate(uniqueV);
-      coordinates.push_back(uniqueV);
 
       transformedVectors = sg->Transform(uniqueV);
-      for (transformIterator = transformedVectors.begin();
-           transformIterator != transformedVectors.end(); ++transformIterator) {
-        // coordinates are in reciprocal space -- check if it's in the unit cell
-        // if not, transform it in place
-        updatedCoordinate = WrapFractionalCoordinate(*transformIterator);
-        foundDuplicate = false;
+      for (transformIter = transformedVectors.begin();
+        transformIter != transformedVectors.end(); ++transformIter) {
+        updatedCoordinate = WrapFractionalCoordinate(*transformIter);
 
         // Check if the transformed coordinate is a duplicate of an atom
-        for (duplicateIterator = coordinates.begin();
-             duplicateIterator != coordinates.end(); ++duplicateIterator) {
-          if (areDuplicateAtoms(*duplicateIterator, updatedCoordinate)) {
-            foundDuplicate = true;
-            break;
-          }
+        snprintf(hash, 22, "%03d,%.3f,%.3f,%.3f", (*atomIter)->GetAtomicNum(), updatedCoordinate.x(),
+                 updatedCoordinate.y(), updatedCoordinate.z());
+        if (coordinateSet.insert(hash).second) {
+          newAtom = mol->NewAtom();
+          newAtom->Duplicate(*atomIter);
+          newAtom->SetVector(FractionalToCartesian(updatedCoordinate));
         }
-        if (foundDuplicate)
-          continue;
-
-        coordinates.push_back(updatedCoordinate); // make sure to check the new atom for dupes
-        newAtom = mol->NewAtom();
-        newAtom->Duplicate(*i);
-        newAtom->SetVector(FractionalToCartesian(updatedCoordinate));
       } // end loop of transformed atoms
-      (*i)->SetVector(FractionalToCartesian(uniqueV)); // move the atom back into the unit cell
     } // end loop of atoms
-
     SetSpaceGroup(1); // We've now applied the symmetry, so we should act like a P1 unit cell
   }
 
@@ -1032,7 +1038,7 @@ namespace OpenBabel
 
     unsigned int ct = 0;
 
-    for( angle=_angles.begin(); angle!=_angles.end(); angle++,ct++)
+    for( angle=_angles.begin(); angle!=_angles.end(); ++angle,ct++)
       {
         angles[ct].resize(3);
         angles[ct][0] = angle->_vertex->GetIdx() - 1;
@@ -1185,9 +1191,9 @@ namespace OpenBabel
     vector<triple<OBAtom*,OBAtom*,double> >::iterator ad;
     for(ad = _ads.begin();ad != _ads.end() && (Aprotor || Dprotor);++ad)
       {
-        if(!ad->first->IsHydrogen())
+        if (ad->first->GetAtomicNum() != OBElements::Hydrogen)
           Aprotor = false;
-        if(!ad->second->IsHydrogen())
+        if (ad->second->GetAtomicNum() != OBElements::Hydrogen)
           Dprotor = false;
       }
     return (Aprotor || Dprotor);
@@ -1452,7 +1458,7 @@ void OBDOSData::SetData(double fermi,
 
   // member functions for OBOrbitalData
 
-  void OBOrbitalData::LoadClosedShellOrbitals(std::vector<double> energies, std::vector<std::string> symmetries, int alphaHOMO)
+  void OBOrbitalData::LoadClosedShellOrbitals(std::vector<double> energies, std::vector<std::string> symmetries, unsigned int alphaHOMO)
   {
     if (energies.size() < symmetries.size())
       return; // something is very weird -- it's OK to pass no symmetries (we'll assume "A")
@@ -1483,7 +1489,7 @@ void OBDOSData::SetData(double fermi,
       }
   }
 
-  void OBOrbitalData::LoadAlphaOrbitals(std::vector<double> energies, std::vector<std::string> symmetries, int alphaHOMO)
+  void OBOrbitalData::LoadAlphaOrbitals(std::vector<double> energies, std::vector<std::string> symmetries, unsigned int alphaHOMO)
   {
     if (energies.size() < symmetries.size())
       return; // something is very weird -- it's OK to pass no symmetries (we'll assume "A")
@@ -1512,7 +1518,7 @@ void OBDOSData::SetData(double fermi,
       }
   }
 
-  void OBOrbitalData::LoadBetaOrbitals(std::vector<double> energies, std::vector<std::string> symmetries, int betaHOMO)
+  void OBOrbitalData::LoadBetaOrbitals(std::vector<double> energies, std::vector<std::string> symmetries, unsigned int betaHOMO)
   {
     if (energies.size() < symmetries.size())
       return; // something is very weird -- it's OK to pass no symmetries (we'll assume "A")
@@ -1628,6 +1634,11 @@ void OBVibrationData::SetData(const std::vector< std::vector< vector3 > > & vLx,
 unsigned int OBVibrationData::GetNumberOfFrequencies() const
 {
   return this->_vFrequencies.size();
+}
+
+void OBFreeGrid::Clear()
+{
+  _points.clear();
 }
 
 } //end namespace OpenBabel

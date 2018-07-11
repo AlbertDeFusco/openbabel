@@ -2,7 +2,7 @@
 #define OB_CAIROPAINTER_H
 
 #include <openbabel/depict/painter.h>
-#include <cairo.h>
+#include "cairo.h"
 
 namespace OpenBabel
 {
@@ -18,11 +18,14 @@ namespace OpenBabel
       void SetFontFamily(const std::string &fontFamily) {} // FIXME
       void SetFontSize(int pointSize);
       void SetFillColor(const OBColor &color);
+      void SetFillRadial(const OBColor &start, const OBColor &end);
       void SetPenColor(const OBColor &color);
       void SetPenWidth(double width);
-      void DrawLine(double x1, double y1, double x2, double y2);
+      double GetPenWidth();
+      void DrawLine(double x1, double y1, double x2, double y2, const std::vector<double> & dashes=std::vector<double>());
       void DrawPolygon(const std::vector<std::pair<double,double> > &points);
       void DrawCircle(double x, double y, double r);
+      void DrawBall(double x, double y, double r, double opacity);
       void DrawText(double x, double y, const std::string &text);
       OBFontMetrics GetFontMetrics(const std::string &text);
       //@}
@@ -36,8 +39,12 @@ namespace OpenBabel
       void SetTitle(std::string title) {m_title=title;}
       void SetIndex(int index) {m_index=index;}
       void SetTableSize(int nrows, int ncols) {m_nrows=nrows; m_ncols=ncols;}
-      //@}
- 
+      void SetBackground(std::string color) {m_fillcolor=color;}
+      void SetBondColor(std::string color) {m_bondcolor=color;}
+      void SetTransparent(bool tr) {m_transparent=tr;}
+      void SetCropping(bool cr) {m_cropping=cr;}
+     //@}
+
     private:
       cairo_surface_t *m_surface;
       cairo_t *m_cairo;
@@ -48,6 +55,9 @@ namespace OpenBabel
       std::string m_title;
       int m_index;        // Index of current molecule in a table
       int m_ncols, m_nrows; // number of rows and columns
+      std::string m_fillcolor, m_bondcolor;
+      bool m_transparent, m_cropping;
+
   };
 
 }

@@ -78,18 +78,12 @@ namespace OpenBabel
 #define OB_PCHARGE_MOL           (1<<6)
   //! Atom hybridizations have been set. See OBAtomTyper
 #define OB_HYBRID_MOL            (1<<8)
-  //! Implicit valence has been set. See OBAtomTyper
-#define OB_IMPVAL_MOL            (1<<9)
-  //! Kekule form has been set. See OBMol::Kekulize
-#define OB_KEKULE_MOL            (1<<10)
   //! Ring "closure" bonds have been set. See OBBond::IsClosure
 #define OB_CLOSURE_MOL           (1<<11)
   //! Hyrdogen atoms have been added where needed. See OBMol::AddHydrogens
 #define OB_H_ADDED_MOL           (1<<12)
   //! pH correction for hydrogen addition has been performed.
 #define OB_PH_CORRECTED_MOL      (1<<13)
-  //! Aromaticity has been corrected. See OBAtomTyper::CorrectAromaticNitrogens
-#define OB_AROM_CORRECTED_MOL    (1<<14)
   //! Biomolecular chains and residues have been set. See OBChainsParser
 #define OB_CHAINS_MOL            (1<<15)
   //! Total charge on this molecule has been set. See OBMol::SetTotalCharge
@@ -136,15 +130,6 @@ enum HydrogenType { AllHydrogen, PolarHydrogen, NonPolarHydrogen };
     bool  HasFlag(int flag)    { return((_flags & flag) ? true : false); }
     void  SetFlag(int flag)    { _flags |= flag; }
 
-    //! \name Internal Kekulization routines -- see kekulize.cpp and NewPerceiveKekuleBonds()
-    //@{
-    void start_kekulize(std::vector <OBAtom*> &cycle, std::vector<int> &electron);
-    bool expand_kekulize(int bond_idx, std::vector<int> &atomState, std::vector<int> &bondState);
-    bool has_no_leftover_electrons(std::vector<int> &atomState);
-    int getorden(OBAtom *atom);
-    bool expandcycle(OBAtom *atom, OBBitVec &avisit, const OBBitVec &potAromBonds);
-    //@}
-
   public:
 
     //! \name Initialization and data (re)size methods
@@ -190,8 +175,10 @@ enum HydrogenType { AllHydrogen, PolarHydrogen, NonPolarHydrogen };
     virtual void DestroyResidue(OBResidue*);
 
     //! Add the specified atom to this molecule
+    //! \param atom        the atom to add
+    //! \param forceNewId  whether to make a new atom Id even if the atom already has one (default is false)
     //! \return Whether the method was successful
-    bool AddAtom(OBAtom&);
+    bool AddAtom(OBAtom& atom, bool forceNewId = false);
     //! Add a new atom to this molecule (like AddAtom)
     //! Calls BeginModify() before insertion and EndModify() after insertion
     bool InsertAtom(OBAtom &);
@@ -277,8 +264,8 @@ enum HydrogenType { AllHydrogen, PolarHydrogen, NonPolarHydrogen };
     unsigned int NumHvyAtoms();
     //! \return the number of residues (i.e. OBResidue substituents)
     unsigned int NumResidues() const      { return(static_cast<unsigned int> (_residue.size())); }
-    //! \return the number of rotatble bonds. See OBBond::IsRotor() for details
-    unsigned int NumRotors();
+    //! \return the number of rotatable bonds. If sampleRingBonds is true, will include rotors within rings (see OBBond::IsRotor() for details)
+    unsigned int NumRotors(bool sampleRingBonds=false);
 
     //! \return the atom at index @p idx or NULL if it does not exist.
     //! \warning Atom indexing will change. Use iterator methods instead.
@@ -316,6 +303,9 @@ enum HydrogenType { AllHydrogen, PolarHydrogen, NonPolarHydrogen };
     //! \return the angle (in degrees) between the three atoms @p a, @p b and @p c
     //!  (where  a-> b (vertex) -> c )
     double GetAngle(OBAtom* a, OBAtom* b, OBAtom* c);
+    //! \return the size of the smallest ring if a and b are in the same ring, 0 otherwise
+    //! \since version 2.4
+    int AreInSameRing(OBAtom *a, OBAtom *b);
     //! \return the stochoimetric formula (e.g., C4H6O)
     std::string  GetFormula();
     //! \return the stochoimetric formula in spaced format e.g. C 4 H 6 O 1
@@ -388,33 +378,32 @@ enum HydrogenType { AllHydrogen, PolarHydrogen, NonPolarHydrogen };
     //! Mark that ring types have been perceived (see OBRingTyper for details)
     void   SetRingTypesPerceived()   { SetFlag(OB_RINGTYPES_MOL);   }
     //! Mark that chains and residues have been perceived (see OBChainsParser)
-    void   SetChainsPerceived()      { SetFlag(OB_CHAINS_MOL);      }
+    void   SetChainsPerceived(bool is_perceived=true)
+    {
+      if (is_perceived)      SetFlag(OB_CHAINS_MOL);
+      else                 UnsetFlag(OB_CHAINS_MOL);
+    }
     //! Mark that chirality has been perceived
     void   SetChiralityPerceived()   { SetFlag(OB_CHIRALITY_MOL);   }
     //! Mark that partial charges have been assigned
     void   SetPartialChargesPerceived(){ SetFlag(OB_PCHARGE_MOL);   }
     //! Mark that hybridization of all atoms has been assigned
     void   SetHybridizationPerceived() { SetFlag(OB_HYBRID_MOL);    }
-    //! Mark that the implicit hydrogen valence of all atoms has been assigned
-    void   SetImplicitValencePerceived(){ SetFlag(OB_IMPVAL_MOL);   }
-    //! Mark that Kekule forms have been assigned by Kekulize()
-    void   SetKekulePerceived()      { SetFlag(OB_KEKULE_MOL);      }
     //! Mark that ring closure bonds have been assigned by graph traversal
     void   SetClosureBondsPerceived(){ SetFlag(OB_CLOSURE_MOL);     }
     //! Mark that explicit hydrogen atoms have been added
     void   SetHydrogensAdded()       { SetFlag(OB_H_ADDED_MOL);     }
     void   SetCorrectedForPH()       { SetFlag(OB_PH_CORRECTED_MOL);}
-    void   SetAromaticCorrected()    { SetFlag(OB_AROM_CORRECTED_MOL);}
     void   SetSpinMultiplicityAssigned(){ SetFlag(OB_ATOMSPIN_MOL);    }
     void   SetFlags(int flags)       { _flags = flags;              }
 
     void   UnsetAromaticPerceived()  { _flags &= (~(OB_AROMATIC_MOL));   }
+    //! Mark that chains perception will need to be run again if required
     void   UnsetSSSRPerceived()  { _flags &= (~(OB_SSSR_MOL));   }
     //! Mark that Largest Set of Smallest Rings will need to be run again if required (see OBRing class)
     void   UnsetLSSRPerceived()  { _flags &= (~(OB_LSSR_MOL));   }
     void   UnsetRingTypesPerceived()  { _flags &= (~(OB_RINGTYPES_MOL));   }
     void   UnsetPartialChargesPerceived(){ _flags &= (~(OB_PCHARGE_MOL));}
-    void   UnsetImplicitValencePerceived(){_flags &= (~(OB_IMPVAL_MOL)); }
     void   UnsetHydrogensAdded()       { UnsetFlag(OB_H_ADDED_MOL);     }
     void   UnsetFlag(int flag)       { _flags &= (~(flag));              }
     //@}
@@ -450,13 +439,6 @@ enum HydrogenType { AllHydrogen, PolarHydrogen, NonPolarHydrogen };
     void Rotate(const double m[9],int nconf);
     //! Translate to the center of all coordinates (for this conformer)
     void Center();
-    //! Transform to standard Kekule bond structure (presumably from an aromatic form)
-
-    bool Kekulize();
-    bool PerceiveKekuleBonds();
-
-    void NewPerceiveKekuleBonds();
-
     //! Delete all hydrogens from the molecule
     //! \return Success
     bool DeleteHydrogens();
@@ -465,6 +447,7 @@ enum HydrogenType { AllHydrogen, PolarHydrogen, NonPolarHydrogen };
     bool DeleteHydrogens(OBAtom*);
     //! Delete all hydrogen atoms connected to a polar atom
     //! \see OBAtom::IsPolarHydrogen
+    //! \since version 2.4
     bool DeletePolarHydrogens();
     //! Delete all hydrogen atoms connected to a non-polar atom
     //! \see OBAtom::IsNonPolarHydrogen
@@ -484,25 +467,48 @@ enum HydrogenType { AllHydrogen, PolarHydrogen, NonPolarHydrogen };
     //! Add only polar hydrogens (i.e., attached to polar atoms, not C)
     bool AddPolarHydrogens();
     //! Add only nonpolar hydrogens (i.e., attached to C)
+    //! \since version 2.4
     bool AddNonPolarHydrogens();
     //! Add polar and/or nonpolar hydrogens
+    //! \since verison 2.4
     bool AddNewHydrogens(HydrogenType whichHydrogen, bool correctForPH=false, double pH=7.4);
 
     //! If @p threshold is not specified or is zero, remove all but the largest
     //! contiguous fragment. If @p threshold is non-zero, remove any fragments with fewer
     //! than @p threshold atoms.
-    bool StripSalts(int threshold=0);
+    bool StripSalts(unsigned int threshold=0);
     //! Copies each disconnected fragment as a separate OBMol
     std::vector<OBMol> Separate(int StartIndex=1);
     //! Iterative component of Separate to copy one fragment at a time
     bool GetNextFragment( OpenBabel::OBMolAtomDFSIter& iter, OBMol& newMol );
+    // docs in mol.cpp
+    bool CopySubstructure(OBMol& newmol, OBBitVec *includeatoms, OBBitVec *excludebonds = (OBBitVec*)0,
+      unsigned int correctvalence=1,
+      std::vector<unsigned int> *atomorder=(std::vector<unsigned int>*)0,
+      std::vector<unsigned int> *bondorder=(std::vector<unsigned int>*)0);
     //! Converts the charged form of coordinate bonds, e.g.[N+]([O-])=O to N(=O)=O
     bool ConvertDativeBonds();
+    //! Converts 5-valent N and P only. Return true if conversion occurred.
+    //! \return has charged form of dative bonds(e.g.[N+]([O-])=O from N(=O)=O).
+    //! \since version 2.4
+    bool MakeDativeBonds();
+    /** Convert zero-order bonds to single or double bonds and adjust adjacent atom
+     *  charges in an attempt to achieve the correct valence state.
+     *  @return Whether any modifications were made
+     *  @since version 2.4
+     */
+    bool ConvertZeroBonds();
 
     //! Correct for pH by applying the OBPhModel transformations
     bool CorrectForPH(double pH=7.4);
     // docs in mol.cpp
     bool AssignSpinMultiplicity(bool NoImplicitH=false);
+
+    //! Put the specified molecular charge on appropriate atoms.
+    //! Assumes all the hydrogen is explicitly included in the molecule.
+    //! \since version 2.4
+    bool AssignTotalChargeToAtoms(int charge);
+
     //! The OBMol is a pattern, not a complete molecule. Left unchanged by Clear().
     void   SetIsPatternStructure()       { SetFlag(OB_PATTERN_STRUCTURE);}
 
@@ -584,18 +590,12 @@ enum HydrogenType { AllHydrogen, PolarHydrogen, NonPolarHydrogen };
     bool HasPartialChargesPerceived() { return(HasFlag(OB_PCHARGE_MOL));}
     //! Has atomic hybridization been assigned by OBAtomTyper?
     bool HasHybridizationPerceived() { return(HasFlag(OB_HYBRID_MOL));  }
-    //! Has implicit hydrogen valence been assigned by OBAtomTyper?
-    bool HasImplicitValencePerceived() { return(HasFlag(OB_IMPVAL_MOL));}
-    //! Has aromaticity and Kekule forms been assigned by Kekulize?
-    bool HasKekulePerceived() { return(HasFlag(OB_KEKULE_MOL));         }
     //! Have ring "closure" bonds been assigned? (e.g., OBBond::IsClosure())
     bool HasClosureBondsPerceived() { return(HasFlag(OB_CLOSURE_MOL));  }
     //! Have biomolecule chains and residues been assigned by OBChainsParser?
     bool HasChainsPerceived() { return(HasFlag(OB_CHAINS_MOL));         }
     //! Have hydrogens been added to the molecule?
     bool HasHydrogensAdded() { return(HasFlag(OB_H_ADDED_MOL));         }
-    //! Have aromatic nitrogens been "corrected?" (deprecated)
-    bool HasAromaticCorrected() { return(HasFlag(OB_AROM_CORRECTED_MOL));}
     //! Has the molecule been corrected for pH by CorrectForPH?
     bool IsCorrectedForPH() { return(HasFlag(OB_PH_CORRECTED_MOL));     }
     //! Has total spin multiplicity been assigned?
@@ -615,8 +615,8 @@ enum HydrogenType { AllHydrogen, PolarHydrogen, NonPolarHydrogen };
     //! Add a new set of coordinates @p f as a new conformer
     void    AddConformer(double *f)    {  _vconf.push_back(f);    }
     //! Set the molecule's current conformer to @p i
-    //! Does nothing if @p i is less than 0 or i is larger than NumConformers()
-    void    SetConformer(int i);
+    //! Does nothing if @p i is larger than NumConformers()
+    void    SetConformer(unsigned int i);
     //! Copy the conformer @p nconf into the array @p c
     //! \warning Does no checking to see if @p c is large enough
     void    CopyConformer(double* c,int nconf);
@@ -720,13 +720,9 @@ enum HydrogenType { AllHydrogen, PolarHydrogen, NonPolarHydrogen };
   OBAPI std::string NewExtension(std::string&,char*);
 
   //global definitions
-  //! Global OBElementTable for element properties
-  EXTERN  OBElementTable   etab;
   //! Global OBTypeTable for translating between different atom types
   //! (e.g., Sybyl <-> MM2)
   EXTERN  OBTypeTable      ttab;
-  //! Global OBIsotopeTable for isotope properties
-  EXTERN  OBIsotopeTable   isotab;
   //! Global OBAromaticTyper for detecting aromatic atoms and bonds
   EXTERN  OBAromaticTyper  aromtyper;
   //! Global OBAtomTyper for marking internal valence, hybridization,

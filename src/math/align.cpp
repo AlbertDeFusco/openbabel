@@ -24,6 +24,7 @@ GNU General Public License for more details.
 #include <openbabel/math/align.h>
 #include <openbabel/graphsym.h>
 #include <openbabel/math/vector3.h>
+#include <openbabel/elements.h>
 
 #include <Eigen/Core>
 #include <Eigen/Geometry>
@@ -34,14 +35,15 @@ using namespace std;
 
 namespace OpenBabel
 {
-  OBAlign::OBAlign(bool includeH, bool symmetry) {
+  OBAlign::OBAlign(bool includeH, bool symmetry) : _method(OBAlign::Kabsch)
+  {
     _ready = false;
     _symmetry = symmetry;
     _includeH = includeH;
     _prefmol = 0;
   }
 
-  OBAlign::OBAlign(const vector<vector3> &ref, const vector<vector3> &target)
+  OBAlign::OBAlign(const vector<vector3> &ref, const vector<vector3> &target) : _method(OBAlign::Kabsch)
   {
     SetRef(ref);
     SetTarget(target);
@@ -49,7 +51,8 @@ namespace OpenBabel
     _prefmol = 0;
   }
 
-  OBAlign::OBAlign(const OBMol &refmol, const OBMol &targetmol, bool includeH, bool symmetry) {
+  OBAlign::OBAlign(const OBMol &refmol, const OBMol &targetmol, bool includeH, bool symmetry) : _method(OBAlign::Kabsch)
+  {
     _symmetry = symmetry;
     _includeH = includeH;
     SetRefMol(refmol);
@@ -111,7 +114,7 @@ namespace OpenBabel
 
     for (unsigned int i=1; i<=refmol.NumAtoms(); ++i) {
       atom = refmol.GetAtom(i);
-      if (_includeH || !atom->IsHydrogen()) {
+      if (_includeH || atom->GetAtomicNum() != OBElements::Hydrogen) {
         _frag_atoms.SetBitOn(i);
         _newidx.push_back(i - delta);
         _refmol_coords.push_back(atom->GetVector());
@@ -134,10 +137,130 @@ namespace OpenBabel
     OBAtom const *atom;
     for (unsigned int i=1; i<=targetmol.NumAtoms(); ++i) {
       atom = targetmol.GetAtom(i);
-      if (_includeH || !atom->IsHydrogen())
+      if (_includeH || atom->GetAtomicNum() != OBElements::Hydrogen)
         _targetmol_coords.push_back(atom->GetVector());
     }
     SetTarget(_targetmol_coords);
+  }
+
+  void OBAlign::SetMethod(OBAlign::AlignMethod method) {
+    _method = method;
+  }
+
+/* Evaluates the Newton-Raphson correction for the Horn quartic.
+   only 11 FLOPs */
+  static double eval_horn_NR_corrxn(const vector<double> &c, const double x)
+  {
+    double x2 = x*x;
+    double b = (x2 + c[2])*x;
+    double a = b + c[1];
+
+    return((a*x + c[0])/(2.0*x2*x + b + a));
+  }
+
+  /* Newton-Raphson root finding */
+  static double QCProot(const vector<double> &coeff, double guess, const double delta)
+  {
+    int             i;
+    double          oldg;
+    double initialg = guess;
+
+    for (i = 0; i < 50; ++i)
+    {
+        oldg = guess;
+        /* guess -= (eval_horn_quart(coeff, guess) / eval_horn_quart_deriv(coeff, guess)); */
+        guess -= eval_horn_NR_corrxn(coeff, guess);
+
+        if (fabs(guess - oldg) < fabs(delta*guess))
+            return(guess);
+    }
+
+    return initialg + 1.0; // Failed to converge!
+  }
+
+  vector<double> CalcQuarticCoeffs(const Eigen::Matrix3d &M)
+  {
+    vector<double> coeff(4);
+
+    double          Sxx, Sxy, Sxz, Syx, Syy, Syz, Szx, Szy, Szz;
+    double          Szz2, Syy2, Sxx2, Sxy2, Syz2, Sxz2, Syx2, Szy2, Szx2,
+                    SyzSzymSyySzz2, Sxx2Syy2Szz2Syz2Szy2, Sxy2Sxz2Syx2Szx2,
+                    SxzpSzx, SyzpSzy, SxypSyx, SyzmSzy,
+                    SxzmSzx, SxymSyx, SxxpSyy, SxxmSyy;
+
+#ifdef HAVE_EIGEN3
+    Eigen::MatrixXd M_sqr = M.array().square();
+#else
+    Eigen::MatrixXd M_sqr = M.cwise().square();
+#endif
+
+    Sxx = M(0, 0);
+    Sxy = M(1, 0);
+    Sxz = M(2, 0);
+    Syx = M(0, 1);
+    Syy = M(1, 1);
+    Syz = M(2, 1);
+    Szx = M(0, 2);
+    Szy = M(1, 2);
+    Szz = M(2, 2);
+
+    Sxx2 = Sxx * Sxx;
+    Syy2 = Syy * Syy;
+    Szz2 = Szz * Szz;
+
+    Sxy2 = Sxy * Sxy;
+    Syz2 = Syz * Syz;
+    Sxz2 = Sxz * Sxz;
+
+    Syx2 = Syx * Syx;
+    Szy2 = Szy * Szy;
+    Szx2 = Szx * Szx;
+
+    SyzSzymSyySzz2 = 2.0*(Syz*Szy - Syy*Szz);
+    Sxx2Syy2Szz2Syz2Szy2 = Syy2 + Szz2 - Sxx2 + Syz2 + Szy2;
+
+    /* coeff[4] = 1.0; */
+    /* coeff[3] = 0.0; */
+    // coeff[2] = -2.0 * (Sxx2 + Syy2 + Szz2 + Sxy2 + Syx2 + Sxz2 + Szx2 + Syz2 + Szy2);
+    coeff[2] = -2.0 * M_sqr.sum();
+    coeff[1] = 8.0 * (Sxx*Syz*Szy + Syy*Szx*Sxz + Szz*Sxy*Syx - Sxx*Syy*Szz - Syz*Szx*Sxy - Szy*Syx*Sxz);
+
+    SxzpSzx = Sxz+Szx;
+    SyzpSzy = Syz+Szy;
+    SxypSyx = Sxy+Syx;
+    SyzmSzy = Syz-Szy;
+    SxzmSzx = Sxz-Szx;
+    SxymSyx = Sxy-Syx;
+    SxxpSyy = Sxx+Syy;
+    SxxmSyy = Sxx-Syy;
+    Sxy2Sxz2Syx2Szx2 = Sxy2 + Sxz2 - Syx2 - Szx2;
+
+    coeff[0] = Sxy2Sxz2Syx2Szx2 * Sxy2Sxz2Syx2Szx2
+             + (Sxx2Syy2Szz2Syz2Szy2 + SyzSzymSyySzz2) * (Sxx2Syy2Szz2Syz2Szy2 - SyzSzymSyySzz2)
+             + (-(SxzpSzx)*(SyzmSzy)+(SxymSyx)*(SxxmSyy-Szz)) * (-(SxzmSzx)*(SyzpSzy)+(SxymSyx)*(SxxmSyy+Szz))
+             + (-(SxzpSzx)*(SyzpSzy)-(SxypSyx)*(SxxpSyy-Szz)) * (-(SxzmSzx)*(SyzmSzy)-(SxypSyx)*(SxxpSyy+Szz))
+             + (+(SxypSyx)*(SyzpSzy)+(SxzpSzx)*(SxxmSyy+Szz)) * (-(SxymSyx)*(SyzmSzy)+(SxzpSzx)*(SxxpSyy+Szz))
+             + (+(SxypSyx)*(SyzmSzy)+(SxzmSzx)*(SxxmSyy-Szz)) * (-(SxymSyx)*(SyzpSzy)+(SxzmSzx)*(SxxpSyy-Szz));
+
+    return coeff;
+  }
+
+  void OBAlign::TheobaldAlign(const Eigen::MatrixXd &mtarget)
+  {
+    // M = B(t) times A (where A, B are N x 3 matrices)
+    Eigen::Matrix3d M = mtarget * _mref.transpose();
+
+    // Maximum value for lambda is (Ga + Gb) / 2
+    double innerprod = mtarget.squaredNorm() + _mref.squaredNorm();
+
+    vector<double> coeffs = CalcQuarticCoeffs(M);
+    double lambdamax = QCProot(coeffs, 0.5 * innerprod, 1e-6);
+    if (lambdamax > (0.5 * innerprod))
+      _fail = true;
+    else {
+      double sqrdev = innerprod - (2.0 * lambdamax);
+      _rmsd = sqrt(sqrdev / mtarget.cols());
+    }
   }
 
   void OBAlign::SimpleAlign(const Eigen::MatrixXd &mtarget)
@@ -184,7 +307,10 @@ namespace OpenBabel
     }
 
     if (!_symmetry || _aut.size() == 1) {
-      SimpleAlign(_mtarget);
+      if (_method == OBAlign::Kabsch)
+        SimpleAlign(_mtarget);
+      else
+        TheobaldAlign(_mtarget);
     }
     else {  // Iterate over the automorphisms
 
@@ -209,8 +335,10 @@ namespace OpenBabel
             i++;
           }
         }
-
-        SimpleAlign(mtarget);
+        if (_method == OBAlign::Kabsch)
+          SimpleAlign(mtarget);
+        else
+          TheobaldAlign(mtarget);
         if (_rmsd < min_rmsd) {
           min_rmsd = _rmsd;
           result = _result;
@@ -269,7 +397,7 @@ namespace OpenBabel
       VectorsToMatrix(&target_coords, mtarget);
 
       // Subtract the centroid of the non-H atoms
-      for (vector<vector3>::size_type i=0; i<mtarget.cols(); ++i)
+      for (unsigned int i=0; i<mtarget.cols(); ++i)
         mtarget.col(i) -= _target_centr;
 
       // Rotate

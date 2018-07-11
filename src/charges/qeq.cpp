@@ -23,8 +23,8 @@ GNU General Public License for more details.
 
 using namespace std;
 
-#ifdef _MSC_VER
-// MSVC doesn't have error function erf, use local implementation
+#if defined(_MSC_VER) && _MSC_VER < 1800
+// Older MSVC doesn't have error function erf, use local implementation
 #include <openbabel/math/erf.h>
 using temperf::erf;
 #endif
@@ -54,7 +54,7 @@ namespace OpenBabel
 
     \f]
 
-	in the current implementation, we assume \f$Q = 0\f$ always.
+    in the current implementation, we assume \f$Q = 0\f$ always.
 
     The off-diagonal Coulomb interactions are screened using the following integral
 
@@ -198,7 +198,7 @@ namespace OpenBabel
 
     FOR_ATOMS_OF_MOL(atom, mol)
       {
-       	Parameters = GetParameters(atom->GetAtomicNum(), atom->GetFormalCharge());
+        Parameters = GetParameters(atom->GetAtomicNum(), atom->GetFormalCharge());
         i = atom->GetIdx() - 1;
 
         if (Parameters[0] == 0.)

@@ -23,6 +23,7 @@ GNU General Public License for more details.
 #include <openbabel/shared_ptr.h>
 #include <openbabel/mol.h>
 
+
 namespace OpenBabel
 {
 
@@ -35,10 +36,10 @@ namespace OpenBabel
 class OBReaction : public OBBase
 {
 private:
-  std::vector<shared_ptr<OBMol> > _reactants;
-  std::vector<shared_ptr<OBMol> > _products;
-  shared_ptr<OBMol> _ts;
-  shared_ptr<OBMol> _agent;
+  std::vector<obsharedptr<OBMol> > _reactants;
+  std::vector<obsharedptr<OBMol> > _products;
+  std::vector<obsharedptr<OBMol> > _agents;
+  obsharedptr<OBMol> _ts;
   std::string _title;
   std::string _comment;
   bool _reversible;
@@ -52,38 +53,47 @@ public:
   int NumProducts()const
   { return static_cast<int> (_products.size()); }
 
-  void AddReactant(const shared_ptr<OBMol> sp)
+  int NumAgents() const
+  {
+    return static_cast<int> (_agents.size());
+  }
+
+  void AddReactant(const obsharedptr<OBMol> sp)
   { _reactants.push_back(sp); }
 
-  void AddProduct(const shared_ptr<OBMol> sp)
+  void AddProduct(const obsharedptr<OBMol> sp)
   { _products.push_back(sp); }
 
-  void SetTransitionState(const shared_ptr<OBMol> sp)
+  void SetTransitionState(const obsharedptr<OBMol> sp)
   { _ts = sp; }
 
-  void AddAgent(const shared_ptr<OBMol> sp)
-  { _agent = sp; }
+  void AddAgent(const obsharedptr<OBMol> sp)
+  { _agents.push_back(sp); }
 
-  shared_ptr<OBMol> GetReactant(const unsigned i)
+  obsharedptr<OBMol> GetReactant(const unsigned i)
   {
-    shared_ptr<OBMol> sp;
+    obsharedptr<OBMol> sp;
     if(i<_reactants.size())
       sp = _reactants[i];
     return sp; //returns empty if out of range
   }
-  shared_ptr<OBMol> GetProduct(const unsigned i)
+  obsharedptr<OBMol> GetProduct(const unsigned i)
   {
-    shared_ptr<OBMol> sp;
+    obsharedptr<OBMol> sp;
     if(i<_products.size())
       sp = _products[i];
     return sp; //returns empty if out of range
   }
+  obsharedptr<OBMol> GetAgent(const unsigned i)
+  {
+    obsharedptr<OBMol> sp;
+    if (i<_agents.size())
+      sp = _agents[i];
+    return sp; //returns empty if out of range
+  }
 
-  shared_ptr<OBMol> GetTransitionState()const
+  obsharedptr<OBMol> GetTransitionState()const
   { return _ts; }
-
-  shared_ptr<OBMol> GetAgent()const
-  { return _agent; }
 
   std::string GetTitle()	const { return _title; }
   std::string GetComment()	const { return _comment; }
@@ -102,8 +112,8 @@ public:
   {
     _reactants.clear();
     _products.clear();
+    _agents.clear();
     _ts.reset();
-    _agent.reset();
     _title.clear();
     _comment.clear();
     _reversible = false;

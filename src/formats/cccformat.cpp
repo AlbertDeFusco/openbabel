@@ -96,7 +96,7 @@ bool CCCFormat::ReadMolecule(OBBase* pOb, OBConversion* pConv)
         atom.Clear();
         element[0] = buffer[0];
         element[1] = (buffer[1] != ' ') ? buffer[1]:'\0';
-        atom.SetAtomicNum(etab.GetAtomicNum(element));
+        atom.SetAtomicNum(OBElements::GetAtomicNum(element));
         sscanf(&buffer[15],"%lf%lf%lf",&x,&y,&z);
         v.Set(x,y,z);
         atom.SetVector(v);
@@ -106,7 +106,7 @@ bool CCCFormat::ReadMolecule(OBBase* pOb, OBConversion* pConv)
         tokenize(vs,&buffer[60]);
         vector<string>::iterator j;
 
-        for (j = vs.begin();j != vs.end();j++)
+        for (j = vs.begin();j != vs.end();++j)
             if (!j->empty())
             {
                 //get the bond order
